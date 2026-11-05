@@ -1,0 +1,54 @@
+# Lokale Entwicklung: PostgreSQL, MinIO (S3) und der cv-worker.
+# Start: docker compose -f docker-compose.dev.yml up -d --build
+services:
+  pgsql:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: fotostation
+      POSTGRES_USER: fotostation
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgsql:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: fotostation
+      MINIO_ROOT_PASSWORD: fotostation-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio:/data
+
+  # Legt die beiden Buckets an; photos-public ist öffentlich lesbar.
+  minio-setup:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 fotostation fotostation-secret; do sleep 1; done;
+      mc mb --ignore-existing local/photos-private;
+      mc mb --ignore-existing local/photos-public;
+      mc anonymous set download local/photos-public;
+      exit 0;
+      "
+
+  cv-worker:
+    build: ./cv-worker
+    environment:
+      WORKER_TOKEN: dev-token
+      # Laravel erzeugt URLs mit localhost:9000; im Container heißt MinIO "minio".
+      URL_REWRITE: "http://localhost:9000=>http://minio:9000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - minio
+
+volumes:
+  pgsql:
+  minio:

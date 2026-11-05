@@ -1,0 +1,15 @@
+{$WORKER_DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 5MB
+	}
+	reverse_proxy cv-worker:8000 {
+		transport http {
+			read_timeout 15m
+			write_timeout 15m
+		}
+	}
+	header {
+		-Server
+	}
+}
