@@ -6,6 +6,7 @@ use App\Jobs\RenderSeries;
 use App\Models\Station;
 use App\Models\Submission;
 use App\Models\User;
+use App\Support\Pipeline;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -36,6 +37,13 @@ Artisan::command('fotostation:purge-ip-hashes', function (): void {
 })->purpose('Löscht IP-Hashes nach Ablauf der Frist (Datenschutz).');
 
 Artisan::command('fotostation:render-changed {--all : Alle aktiven Stationen, nicht nur geänderte}', function (): int {
+    if (! Pipeline::workerEnabled()) {
+        // needs_render bleibt gesetzt: Mit eingeschaltetem Worker wird nachgeholt.
+        $this->info('Zeitraffer übersprungen: Bildverarbeitungs-Worker ist ausgeschaltet (CV_WORKER_ENABLED).');
+
+        return 0;
+    }
+
     $stations = Station::query()
         ->when(! $this->option('all'), fn ($query) => $query->where('needs_render', true))
         ->when($this->option('all'), fn ($query) => $query->where('is_active', true))

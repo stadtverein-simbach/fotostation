@@ -40,7 +40,7 @@
                 @endif
             </div>
             <figcaption style="margin-top: .25rem; font-size: .875rem; opacity: .7;">
-                {{ $isAligned ? 'Ausgerichtet auf die Referenz' : 'Original' }}
+                {{ $isAligned ? (\App\Support\Pipeline::workerEnabled() ? 'Ausgerichtet auf die Referenz' : 'Zugeschnitten auf das Stationsformat') : 'Original' }}
                 @if ($isAligned && count($record->face_boxes ?? []))
                     · rot: erkannte Gesichter (werden verpixelt)
                 @endif

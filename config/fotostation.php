@@ -74,9 +74,19 @@ return [
     |--------------------------------------------------------------------------
     | Bildverarbeitungs-Worker (Python/OpenCV, eigener Server)
     |--------------------------------------------------------------------------
+    |
+    | Ohne Worker (CV_WORKER_ENABLED=false) läuft ein einfacher Modus nur mit
+    | PHP/GD: kein Abgleich mit dem Referenzbild (keine automatische
+    | Ablehnung), keine Ausrichtung, keine Gesichtserkennung und kein
+    | Zeitraffer. Fotos werden nur auf das Stationsformat zugeschnitten; beim
+    | Veröffentlichen werden ausschließlich von Hand markierte Bereiche
+    | verpixelt. Wird der Worker später eingeschaltet, holt der nächtliche
+    | Befehl die Zeitraffer aller geänderten Stationen nach.
+    |
     */
 
     'worker' => [
+        'enabled' => (bool) env('CV_WORKER_ENABLED', false),
         'url' => rtrim((string) env('CV_WORKER_URL', 'http://localhost:8000'), '/'),
         'token' => env('CV_WORKER_TOKEN'),
         // Muss unter der Laufzeitgrenze der Queue-Worker bleiben

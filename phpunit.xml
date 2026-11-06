@@ -34,6 +34,7 @@
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="FRIENDLY_CAPTCHA_ENABLED" value="false"/>
         <env name="HONEYPOT_ENABLED" value="false"/>
+        <env name="CV_WORKER_ENABLED" value="true"/>
         <env name="CV_WORKER_URL" value="https://worker.test"/>
         <env name="CV_WORKER_TOKEN" value="test-token"/>
     </php>

@@ -4,20 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Enums\SubmissionStatus;
 use App\Http\Requests\StoreSubmissionRequest;
-use App\Jobs\AlignImage;
-use App\Jobs\DetectFaces;
-use App\Jobs\MarkForReview;
-use App\Jobs\MatchReference;
 use App\Models\ConsentVersion;
 use App\Models\Station;
 use App\Models\Submission;
 use App\Services\PhotoStorage;
 use App\Support\ImageProcessor;
+use App\Support\Pipeline;
 use App\Support\UnsupportedImageException;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\ValidationException;
@@ -86,12 +82,7 @@ class UploadController extends Controller
             throw $e;
         }
 
-        Bus::chain([
-            new MatchReference($submission),
-            new AlignImage($submission),
-            new DetectFaces($submission),
-            new MarkForReview($submission),
-        ])->onQueue(config('fotostation.queue'))->dispatch();
+        Pipeline::dispatch($submission);
 
         return redirect()->to($this->thanksUrl($station));
     }
