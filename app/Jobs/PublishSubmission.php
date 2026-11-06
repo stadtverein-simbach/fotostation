@@ -4,6 +4,10 @@ namespace App\Jobs;
 
 use App\Enums\SubmissionStatus;
 use App\Services\CvWorker;
+use App\Services\PhotoStorage;
+use App\Support\Pipeline;
+use App\Support\SimpleImageEditor;
+use RuntimeException;
 
 /**
  * Nach der Freigabe: Gesichter und von Hand markierte Bereiche verpixeln,
@@ -32,13 +36,19 @@ class PublishSubmission extends SubmissionJob
         $publicPath = $submission->pathFor('public');
         $thumbPath = $submission->pathFor('thumb');
 
-        app(CvWorker::class)->publish(
-            alignedPath: $submission->aligned_path,
-            boxes: $boxes,
-            publicPath: $publicPath,
-            thumbPath: $thumbPath,
-            thumbWidth: (int) config('fotostation.upload.thumb_width'),
-        );
+        $thumbWidth = (int) config('fotostation.upload.thumb_width');
+
+        if (Pipeline::workerEnabled()) {
+            app(CvWorker::class)->publish(
+                alignedPath: $submission->aligned_path,
+                boxes: $boxes,
+                publicPath: $publicPath,
+                thumbPath: $thumbPath,
+                thumbWidth: $thumbWidth,
+            );
+        } else {
+            $this->publishLocally($boxes, $publicPath, $thumbPath, $thumbWidth);
+        }
 
         $submission->transitionTo(SubmissionStatus::Published, [
             'public_path' => $publicPath,
@@ -50,6 +60,25 @@ class PublishSubmission extends SubmissionJob
         $submission->deletePrivateFiles();
 
         $station->forceFill(['needs_render' => true])->save();
+    }
+
+    /**
+     * Einfacher Modus ohne Worker: Verpixeln und Thumbnail mit GD.
+     */
+    private function publishLocally(array $boxes, string $publicPath, string $thumbPath, int $thumbWidth): void
+    {
+        $storage = app(PhotoStorage::class);
+        $source = $this->submission->aligned_path ?? $this->submission->original_path;
+        $contents = $source ? $storage->private()->get($source) : null;
+
+        if ($contents === null) {
+            throw new RuntimeException('Keine Bilddatei zum Veröffentlichen vorhanden.');
+        }
+
+        $result = app(SimpleImageEditor::class)->publish($contents, $boxes, $thumbWidth);
+
+        $storage->putPublic($publicPath, $result['jpeg'], 'image/jpeg');
+        $storage->putPublic($thumbPath, $result['thumb'], 'image/webp');
     }
 
     /**

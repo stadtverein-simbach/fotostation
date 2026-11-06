@@ -3,12 +3,9 @@
 namespace App\Filament\Resources\Submissions;
 
 use App\Enums\SubmissionStatus;
-use App\Jobs\AlignImage;
-use App\Jobs\DetectFaces;
-use App\Jobs\MarkForReview;
-use App\Jobs\MatchReference;
 use App\Jobs\PublishSubmission;
 use App\Models\Submission;
+use App\Support\Pipeline;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Repeater;
@@ -16,7 +13,6 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\Bus;
 
 /**
  * Moderationsaktionen, gemeinsam genutzt von Tabelle und Detailseite.
@@ -39,7 +35,10 @@ class SubmissionActions
             ->color('success')
             ->visible(fn (Submission $record): bool => $record->status === SubmissionStatus::PendingReview)
             ->modalHeading('Foto freigeben')
-            ->modalDescription('Erkannte Gesichter werden automatisch verpixelt. Weitere Bereiche (z. B. Kennzeichen) hier in Prozent des Bildes ergänzen: x/y = linke obere Ecke, b/h = Breite/Höhe.')
+            ->modalDescription(fn (): string => (Pipeline::workerEnabled()
+                ? 'Erkannte Gesichter werden automatisch verpixelt. Weitere Bereiche (z. B. Kennzeichen) hier'
+                : 'Keine automatische Gesichtserkennung aktiv: Gesichter, Kennzeichen usw. bitte selbst prüfen und hier')
+                .' in Prozent des Bildes ergänzen: x/y = linke obere Ecke, b/h = Breite/Höhe.')
             ->fillForm(fn (Submission $record): array => ['manual_boxes' => $record->manual_boxes ?? []])
             ->schema([
                 Repeater::make('manual_boxes')
@@ -100,17 +99,14 @@ class SubmissionActions
             ->label('Zur Freigabe holen')
             ->icon('heroicon-o-arrow-path')
             ->color('gray')
-            ->visible(fn (Submission $record): bool => $record->status === SubmissionStatus::AutoRejected && filled($record->homography))
+            ->visible(fn (Submission $record): bool => Pipeline::workerEnabled()
+                && $record->status === SubmissionStatus::AutoRejected && filled($record->homography))
             ->requiresConfirmation()
             ->modalDescription('Das Foto wird trotz schwachem Bildabgleich ausgerichtet und kommt in die Freigabe. Ist die Ausrichtung schlecht, die Schwelle der Station anpassen.')
             ->action(function (Submission $record): void {
                 $record->transitionTo(SubmissionStatus::Processing, ['rejection_reason' => null]);
 
-                Bus::chain([
-                    new AlignImage($record),
-                    new DetectFaces($record),
-                    new MarkForReview($record),
-                ])->onQueue(config('fotostation.queue'))->dispatch();
+                Pipeline::dispatchFromAlignment($record);
 
                 Notification::make()->title('Wird neu verarbeitet')->success()->send();
             });
@@ -134,12 +130,7 @@ class SubmissionActions
                 } else {
                     $record->transitionTo(SubmissionStatus::Received, ['error' => null]);
 
-                    Bus::chain([
-                        new MatchReference($record),
-                        new AlignImage($record),
-                        new DetectFaces($record),
-                        new MarkForReview($record),
-                    ])->onQueue(config('fotostation.queue'))->dispatch();
+                    Pipeline::dispatch($record);
                 }
 
                 Notification::make()->title('Neu eingereiht')->success()->send();
@@ -175,6 +166,8 @@ class SubmissionActions
             ->label('Freigeben (ohne Gesichter)')
             ->icon('heroicon-o-check-circle')
             ->color('success')
+            // Ohne Gesichtserkennung wäre „keine Gesichter“ nicht geprüft.
+            ->visible(fn (): bool => Pipeline::workerEnabled())
             ->requiresConfirmation()
             ->modalDescription('Freigegeben werden nur Fotos, die auf Freigabe warten und in denen keine Gesichter erkannt wurden.')
             ->action(function (Collection $records): void {
