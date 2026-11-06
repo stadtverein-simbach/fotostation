@@ -110,7 +110,7 @@ class SubmissionActions
                     new AlignImage($record),
                     new DetectFaces($record),
                     new MarkForReview($record),
-                ])->onQueue('uploads')->dispatch();
+                ])->onQueue(config('fotostation.queue'))->dispatch();
 
                 Notification::make()->title('Wird neu verarbeitet')->success()->send();
             });
@@ -130,7 +130,7 @@ class SubmissionActions
             ->requiresConfirmation()
             ->action(function (Submission $record): void {
                 if ($record->status === SubmissionStatus::Approved) {
-                    PublishSubmission::dispatch($record)->onQueue('uploads');
+                    PublishSubmission::dispatch($record)->onQueue(config('fotostation.queue'));
                 } else {
                     $record->transitionTo(SubmissionStatus::Received, ['error' => null]);
 
@@ -139,7 +139,7 @@ class SubmissionActions
                         new AlignImage($record),
                         new DetectFaces($record),
                         new MarkForReview($record),
-                    ])->onQueue('uploads')->dispatch();
+                    ])->onQueue(config('fotostation.queue'))->dispatch();
                 }
 
                 Notification::make()->title('Neu eingereiht')->success()->send();
@@ -200,7 +200,7 @@ class SubmissionActions
             'reviewed_at' => now(),
         ]);
 
-        PublishSubmission::dispatch($record)->onQueue('uploads');
+        PublishSubmission::dispatch($record)->onQueue(config('fotostation.queue'));
     }
 
     public static function markRejected(Submission $record, string $reason): void

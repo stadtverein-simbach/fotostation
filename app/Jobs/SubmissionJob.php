@@ -22,7 +22,11 @@ abstract class SubmissionJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 180;
+    /**
+     * Unter der 90-Sekunden-Grenze der Flex-Worker von Laravel Cloud
+     * (Managed Queues). Der Worker-Aufruf selbst ist auf 60 s begrenzt.
+     */
+    public int $timeout = 85;
 
     /** @var array<int, int> */
     public array $backoff = [30, 120, 600];

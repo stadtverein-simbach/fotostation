@@ -167,4 +167,36 @@ class PipelineTest extends TestCase
         $this->assertNull($old->refresh()->ip_hash);
         $this->assertNotNull($new->refresh()->ip_hash);
     }
+
+    public function test_render_command_runs_synchronously_for_changed_stations(): void
+    {
+        Http::fake(['worker.test/render' => Http::response(['frames' => 2, 'duration' => 0.5])]);
+
+        $changed = Station::factory()->create(['needs_render' => true]);
+        $unchanged = Station::factory()->create(['needs_render' => false]);
+        foreach ([$changed, $unchanged] as $station) {
+            foreach (range(1, 2) as $i) {
+                $submission = Submission::factory()->for($station)->status(SubmissionStatus::Published)->create();
+                $submission->forceFill(['public_path' => $submission->pathFor('public')])->save();
+            }
+        }
+
+        $this->artisan('fotostation:render-changed')->assertSuccessful();
+
+        $this->assertSame(1, $changed->series()->count());
+        $this->assertSame(0, $unchanged->series()->count());
+        Http::assertSentCount(1);
+    }
+
+    public function test_create_admin_works_non_interactively(): void
+    {
+        $this->artisan('fotostation:create-admin', [
+            'email' => 'admin@example.de',
+            'name' => 'Admin',
+            '--password' => 'ein-sehr-langes-passwort',
+            '--no-interaction' => true,
+        ])->assertSuccessful();
+
+        $this->assertTrue(\App\Models\User::where('email', 'admin@example.de')->sole()->isAdmin());
+    }
 }

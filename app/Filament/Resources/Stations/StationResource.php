@@ -5,7 +5,6 @@ namespace App\Filament\Resources\Stations;
 use App\Filament\Resources\Stations\Pages\CreateStation;
 use App\Filament\Resources\Stations\Pages\EditStation;
 use App\Filament\Resources\Stations\Pages\ListStations;
-use App\Jobs\RenderSeries;
 use App\Models\Station;
 use App\Support\QrCode;
 use BackedEnum;
@@ -114,12 +113,13 @@ class StationResource extends Resource
                         ['Content-Type' => 'image/svg+xml'],
                     )),
                 Action::make('render')
-                    ->label('Zeitraffer jetzt erstellen')
+                    ->label('Zeitraffer neu erstellen')
                     ->icon(Heroicon::OutlinedArrowPath)
                     ->requiresConfirmation()
+                    ->modalDescription('Der Zeitraffer wird in der kommenden Nacht neu erstellt. Sofort geht es in Laravel Cloud unter „Commands“ mit: php artisan fotostation:render-changed')
                     ->action(function (Station $record): void {
-                        RenderSeries::dispatch($record);
-                        Notification::make()->title('Zeitraffer wird erstellt')->success()->send();
+                        $record->forceFill(['needs_render' => true])->save();
+                        Notification::make()->title('Vorgemerkt für die nächste Nacht')->success()->send();
                     }),
             ]);
     }
