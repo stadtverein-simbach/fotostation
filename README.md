@@ -3,13 +3,30 @@
 Passanten fotografieren durch einen festen Rahmen, laden das Foto über einen QR-Code hoch, und aus den freigegebenen Fotos entstehen Bilderreihen und ein nächtlich gerenderter Zeitraffer.
 
 - **Laravel 13 + Filament 5** (dieses Repository), gehostet in **Laravel Cloud**
-- **cv-worker** (Python, FastAPI, OpenCV, ffmpeg) in `cv-worker/`, gehostet auf einem **eigenen VPS**
+- **cv-worker** (Python, FastAPI, OpenCV, ffmpeg) in `cv-worker/`, gehostet auf einem **eigenen VPS**, **optional** (siehe unten)
+
+## Einfacher Modus ohne cv-worker
+
+Mit `CV_WORKER_ENABLED=false` (Standard) läuft die Fotostation ganz ohne VPS, nur mit PHP/GD in Laravel Cloud. Gut zum Ausprobieren, bevor der Worker eingerichtet wird.
+
+| | ohne Worker | mit Worker |
+|---|---|---|
+| Upload, Neu-Kodieren, Duplikate, Rate-Limit | ja | ja |
+| Abgleich mit dem Referenzbild (Spamfilter, `auto_rejected`) | nein, alles geht in die Moderation | ja |
+| Ausrichtung auf die Referenz | nein, nur mittiger Zuschnitt auf das Stationsformat | ja (Homographie) |
+| Gesichtserkennung und automatisches Verpixeln | nein, Bereiche von Hand markieren oder ablehnen | ja |
+| Verpixeln von Hand markierter Bereiche | ja (GD) | ja |
+| Zeitraffer | nein (nächtlicher Befehl wird übersprungen) | ja |
+
+Im einfachen Modus ist die Sammelfreigabe „Freigeben (ohne Gesichter)“ ausgeblendet, weil nichts geprüft wurde. Queue: `PrepareImage` → `MarkForReview`.
+
+Später einschalten: Worker aufsetzen (siehe unten), `CV_WORKER_ENABLED=true`, `CV_WORKER_URL` und `CV_WORKER_TOKEN` setzen. Neue Uploads laufen dann durch die volle Kette; die Zeitraffer für Stationen mit veröffentlichten Fotos holt der nächste nächtliche Lauf nach (oder sofort: `php artisan fotostation:render-changed`). Bereits veröffentlichte Fotos sind nur zugeschnitten, nicht ausgerichtet.
 
 ## Ablauf
 
 1. `GET /s/{station}`: Upload-Seite (Ziel des QR-Codes)
 2. `POST /s/{station}`: Honeypot, Friendly Captcha, Rate-Limit (3 pro Stunde und IP, 500 pro Tag und Station), Validierung. Das Bild wird **synchron neu kodiert**, alle Metadaten entfallen, nur das Aufnahmedatum bleibt. Gespeichert wird erst diese Fassung, zusammen mit SHA-256, Perceptual Hash und einer Vorschau.
-3. Queue `uploads` (konfigurierbar über `FOTOSTATION_QUEUE`): `MatchReference` → `AlignImage` → `DetectFaces` → `MarkForReview`. Jeder Job bleibt unter 90 Sekunden (Grenze der Flex-Worker bei Laravel Cloud Managed Queues).
+3. Queue `uploads` (konfigurierbar über `FOTOSTATION_QUEUE`), mit Worker: `MatchReference` → `AlignImage` → `DetectFaces` → `MarkForReview`. Jeder Job bleibt unter 90 Sekunden (Grenze der Flex-Worker bei Laravel Cloud Managed Queues).
    - Passt das Foto nicht zum Referenzbild der Station, wird es `auto_rejected` (Stichprobe im Admin, Löschung nach 7 Tagen).
 4. Moderation in Filament (`/admin`): Freigeben (mit optionalen zusätzlichen Verpixel-Bereichen) oder Ablehnen (Dateien werden sofort gelöscht).
 5. `PublishSubmission`: Gesichter und markierte Bereiche verpixeln, öffentliche Fassung und Thumbnail schreiben, Originale löschen.
@@ -33,6 +50,7 @@ php artisan key:generate
 npm install && npm run build
 
 # PostgreSQL, MinIO (beide Buckets) und cv-worker starten
+# (ohne Worker: nur "pgsql minio minio-setup" angeben und CV_WORKER_ENABLED=false lassen)
 docker compose -f docker-compose.dev.yml up -d --build
 
 php artisan migrate
@@ -66,7 +84,7 @@ Die ausführliche Schritt-für-Schritt-Anleitung (inkl. IONOS-VPS) liegt als Dok
    - Sichtbarkeit privat, Disk-Name **`photos-private`**
    - Sichtbarkeit öffentlich, Disk-Name **`photos-public`**
 5. **Managed Queue:** Name `uploads`, Standard, Flex, 512 MiB, 0 bis 2 Worker. Laravel Cloud setzt `QUEUE_CONNECTION=cloud`.
-6. **Umgebungsvariablen** (siehe `.env.example`): `APP_URL`, `APP_LOCALE=de`, `SESSION_DRIVER=cookie`, `CACHE_STORE=database`, `CV_WORKER_URL`, `CV_WORKER_TOKEN`, `CV_WORKER_TIMEOUT=60`, `FRIENDLY_CAPTCHA_*`, `FOTOSTATION_ADMIN_EMAIL`, Mail-Zugang. Die `PHOTOS_*`-Variablen nicht setzen, sie gelten nur lokal.
+6. **Umgebungsvariablen** (siehe `.env.example`): `APP_URL`, `APP_LOCALE=de`, `SESSION_DRIVER=cookie`, `CACHE_STORE=database`, `CV_WORKER_ENABLED` (zunächst `false`; erst mit Worker `true` plus `CV_WORKER_URL`, `CV_WORKER_TOKEN`, `CV_WORKER_TIMEOUT=60`), `FRIENDLY_CAPTCHA_*`, `FOTOSTATION_ADMIN_EMAIL`, Mail-Zugang. Die `PHOTOS_*`-Variablen nicht setzen, sie gelten nur lokal.
 7. **Build commands:** `composer install --no-dev --optimize-autoloader && npm ci && npm run build && php artisan optimize && php artisan filament:optimize`
 8. **Deploy commands:** `php artisan migrate --force`
 9. Nach dem Deployment unter **Commands**:
