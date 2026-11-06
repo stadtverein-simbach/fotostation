@@ -112,15 +112,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Friendly Captcha (v2)
+    | Spamschutz: ALTCHA (selbst gehostet, Proof of Work)
     |--------------------------------------------------------------------------
+    |
+    | Ohne ALTCHA_HMAC_KEY wird der Schlüssel aus APP_KEY abgeleitet.
+    | ALTCHA_COST steuert die Rechenzeit im Browser (höher = langsamer für
+    | Bots, aber auch für ältere Handys).
+    |
     */
 
     'captcha' => [
-        'enabled' => (bool) env('FRIENDLY_CAPTCHA_ENABLED', true),
-        'sitekey' => env('FRIENDLY_CAPTCHA_SITEKEY'),
-        'api_key' => env('FRIENDLY_CAPTCHA_API_KEY'),
-        'endpoint' => env('FRIENDLY_CAPTCHA_ENDPOINT', 'eu'), // "eu" oder "global"
+        'enabled' => (bool) env('ALTCHA_ENABLED', true),
+        'hmac_key' => env('ALTCHA_HMAC_KEY'),
+        'cost' => (int) env('ALTCHA_COST', 5000),
+        'expires' => (int) env('ALTCHA_EXPIRES', 1800), // Sekunden
     ],
 
     /*

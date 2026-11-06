@@ -1,14 +1,7 @@
-import { FriendlyCaptchaSDK } from '@friendlycaptcha/sdk';
+import 'altcha';
+import 'altcha/i18n/de';
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Friendly Captcha: Widget lokal gebündelt, keine externen Skripte.
-    const widgets = document.querySelectorAll('.frc-captcha');
-    if (widgets.length > 0) {
-        const endpoint = widgets[0].dataset.endpoint || 'eu';
-        const sdk = new FriendlyCaptchaSDK({ apiEndpoint: endpoint });
-        sdk.attach(widgets);
-    }
-
     // Upload-Formular: Vorschau und Schutz vor Doppelklick.
     const form = document.querySelector('[data-upload-form]');
     if (!form) {

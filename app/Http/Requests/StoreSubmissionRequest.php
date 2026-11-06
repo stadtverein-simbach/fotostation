@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests;
 
-use App\Rules\FriendlyCaptcha;
+use App\Rules\Altcha;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreSubmissionRequest extends FormRequest
@@ -28,7 +28,7 @@ class StoreSubmissionRequest extends FormRequest
             ],
             'consent' => ['accepted'],
             'name' => ['nullable', 'string', 'max:40'],
-            'frc-captcha-response' => [new FriendlyCaptcha],
+            'altcha' => [new Altcha],
         ];
     }
 
