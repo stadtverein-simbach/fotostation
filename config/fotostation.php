@@ -21,6 +21,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Queue
+    |--------------------------------------------------------------------------
+    |
+    | Alle Verarbeitungsschritte laufen auf einer Queue. In Laravel Cloud eine
+    | Managed Queue mit genau diesem Namen anlegen (Starter-Plan: eine Queue
+    | pro Umgebung). Der Zeitraffer läuft nicht in der Queue, sondern synchron
+    | im nächtlichen Befehl fotostation:render-changed.
+    |
+    */
+
+    'queue' => env('FOTOSTATION_QUEUE', 'uploads'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Upload
     |--------------------------------------------------------------------------
     */
@@ -65,7 +79,11 @@ return [
     'worker' => [
         'url' => rtrim((string) env('CV_WORKER_URL', 'http://localhost:8000'), '/'),
         'token' => env('CV_WORKER_TOKEN'),
-        'timeout' => (int) env('CV_WORKER_TIMEOUT', 120),
+        // Muss unter der Laufzeitgrenze der Queue-Worker bleiben
+        // (Laravel Cloud Managed Queues, Flex: 90 Sekunden pro Job).
+        'timeout' => (int) env('CV_WORKER_TIMEOUT', 60),
+        // Der Zeitraffer läuft synchron im nächtlichen Befehl, nicht in der Queue.
+        'render_timeout' => (int) env('CV_WORKER_RENDER_TIMEOUT', 900),
         // Gültigkeit der vorsignierten Bucket-URLs für den Worker.
         'url_ttl_minutes' => 15,
     ],

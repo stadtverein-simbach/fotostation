@@ -9,11 +9,11 @@ Passanten fotografieren durch einen festen Rahmen, laden das Foto über einen QR
 
 1. `GET /s/{station}`: Upload-Seite (Ziel des QR-Codes)
 2. `POST /s/{station}`: Honeypot, Friendly Captcha, Rate-Limit (3 pro Stunde und IP, 500 pro Tag und Station), Validierung. Das Bild wird **synchron neu kodiert**, alle Metadaten entfallen, nur das Aufnahmedatum bleibt. Gespeichert wird erst diese Fassung, zusammen mit SHA-256, Perceptual Hash und einer Vorschau.
-3. Queue `uploads`: `MatchReference` → `AlignImage` → `DetectFaces` → `MarkForReview`
+3. Queue `uploads` (konfigurierbar über `FOTOSTATION_QUEUE`): `MatchReference` → `AlignImage` → `DetectFaces` → `MarkForReview`. Jeder Job bleibt unter 90 Sekunden (Grenze der Flex-Worker bei Laravel Cloud Managed Queues).
    - Passt das Foto nicht zum Referenzbild der Station, wird es `auto_rejected` (Stichprobe im Admin, Löschung nach 7 Tagen).
 4. Moderation in Filament (`/admin`): Freigeben (mit optionalen zusätzlichen Verpixel-Bereichen) oder Ablehnen (Dateien werden sofort gelöscht).
 5. `PublishSubmission`: Gesichter und markierte Bereiche verpixeln, öffentliche Fassung und Thumbnail schreiben, Originale löschen.
-6. Nachts um 3:00 Uhr, alles gebündelt (die Datenbank wacht nur einmal auf): Zeitraffer neu rendern (nur bei Änderungen), Löschfristen (`model:prune`), IP-Hashes löschen, Fehler melden.
+6. Nachts um 3:00 Uhr, alles gebündelt (die Datenbank wacht nur einmal auf): Zeitraffer neu rendern (nur bei Änderungen, **synchron im Befehl**, nicht in der Queue), Löschfristen (`model:prune`), IP-Hashes löschen, Fehler melden.
 
 Abweichung vom Architektur-Doc: Den früheren Job `ProcessUpload` (Hashes, Duplikate, Thumbnail) gibt es nicht mehr, das passiert direkt im Request zusammen mit dem Neu-Kodieren. Dadurch landet nie eine Datei mit GPS-Daten im Speicher. Die Gesichtserkennung läuft nach der Ausrichtung, damit die Boxen im ausgerichteten Bild liegen.
 
@@ -40,7 +40,10 @@ php artisan fotostation:create-admin du@example.de "Dein Name"
 
 # in getrennten Terminals
 php artisan serve
-php artisan queue:work --queue=uploads,render,default
+php artisan queue:work --queue=uploads
+
+# Zeitraffer von Hand erstellen (sonst nachts per Scheduler)
+php artisan fotostation:render-changed
 ```
 
 Dann `/admin` öffnen, eine Station anlegen, ein Referenzbild hochladen und unter `/s/{kurzname}` ein Foto hochladen. MinIO-Konsole: http://localhost:9001 (fotostation / fotostation-secret).
@@ -54,17 +57,22 @@ cd cv-worker && pip install -r requirements-dev.txt && pytest
 
 ## Laravel Cloud
 
-1. Repository verbinden, Region **EU (Frankfurt)**, PHP 8.4 oder 8.5.
-2. **Datenbank:** Laravel Postgres anhängen (Hibernation aktivieren).
-3. **Cache:** Key-Value-Store anhängen (für Rate-Limiter und Cache), oder `CACHE_STORE=database` lassen.
-4. **Buckets:** zwei Laravel-Object-Storage-Buckets anlegen und anhängen:
-   - `photos-private`: Sichtbarkeit privat, Disk-Name **`photos-private`**
-   - `photos-public`: Sichtbarkeit öffentlich, Disk-Name **`photos-public`**
-   - Jurisdiktion EU wählen, falls angeboten.
-5. **Umgebungsvariablen** (siehe `.env.example`): `APP_LOCALE=de`, `SESSION_DRIVER=cookie`, `CV_WORKER_URL`, `CV_WORKER_TOKEN`, `FRIENDLY_CAPTCHA_*`, `FOTOSTATION_ADMIN_EMAIL`, Mail-Zugang.
-6. **Build-Befehle:** `composer install --no-dev`, `npm ci && npm run build`. **Deploy-Befehl:** `php artisan migrate --force`.
-7. **Worker-Cluster** mit Queue-Worker für die Queues `uploads,render,default` und aktiviertem **Scheduler**.
-8. Nach dem ersten Deployment über „Commands“: `php artisan fotostation:create-admin ...`
+Die ausführliche Schritt-für-Schritt-Anleitung (inkl. IONOS-VPS) liegt als Dokument im Vereinsprojekt. Kurzfassung:
+
+1. Anwendung in Region **EU (Frankfurt)** anlegen, PHP 8.4 oder 8.5.
+2. **App-Cluster:** Flex, Scale to Zero an (Sleep timeout mindestens 10 Minuten), **Scheduler** an.
+3. **Datenbank:** Laravel Serverless Postgres mit Hibernation.
+4. **Buckets:** zwei Laravel-Object-Storage-Buckets, Jurisdiktion **European Union**:
+   - Sichtbarkeit privat, Disk-Name **`photos-private`**
+   - Sichtbarkeit öffentlich, Disk-Name **`photos-public`**
+5. **Managed Queue:** Name `uploads`, Standard, Flex, 512 MiB, 0 bis 2 Worker. Laravel Cloud setzt `QUEUE_CONNECTION=cloud`.
+6. **Umgebungsvariablen** (siehe `.env.example`): `APP_URL`, `APP_LOCALE=de`, `SESSION_DRIVER=cookie`, `CACHE_STORE=database`, `CV_WORKER_URL`, `CV_WORKER_TOKEN`, `CV_WORKER_TIMEOUT=60`, `FRIENDLY_CAPTCHA_*`, `FOTOSTATION_ADMIN_EMAIL`, Mail-Zugang. Die `PHOTOS_*`-Variablen nicht setzen, sie gelten nur lokal.
+7. **Build commands:** `composer install --no-dev --optimize-autoloader && npm ci && npm run build && php artisan optimize && php artisan filament:optimize`
+8. **Deploy commands:** `php artisan migrate --force`
+9. Nach dem Deployment unter **Commands**:
+   `php artisan fotostation:create-admin du@example.de "Dein Name" --password="…"` (danach Passwort ändern, der Befehl bleibt im Verlauf sichtbar).
+
+Grenzen der Managed Queues, auf die der Code ausgelegt ist: eine Queue pro Umgebung im Starter-Plan, Jobs höchstens 90 Sekunden auf Flex, Verzögerungen höchstens 15 Minuten. `php artisan queue:failed` funktioniert damit nicht; fehlgeschlagene Jobs stehen unter **Monitoring › Queues**.
 
 Hinweis zu Filament-Uploads (Referenzbild): Livewire legt Uploads zunächst lokal ab. Bei mehreren App-Instanzen in `config/livewire.php` den `temporary_file_upload.disk` auf `photos-private` stellen.
 

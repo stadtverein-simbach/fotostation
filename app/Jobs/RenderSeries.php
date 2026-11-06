@@ -6,34 +6,21 @@ use App\Models\Series;
 use App\Models\Station;
 use App\Services\CvWorker;
 use App\Services\PhotoStorage;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
- * Rendert den Zeitraffer einer Station neu. Läuft nachts aus dem Scheduler,
- * nur für Stationen mit neuen oder entfernten Fotos.
+ * Rendert den Zeitraffer einer Station neu.
+ *
+ * Bewusst kein Queue-Job: Bei vielen Fotos dauert das Rendern länger als
+ * die 90 Sekunden, die Flex-Worker der Laravel-Cloud-Managed-Queues einem
+ * Job erlauben. Es läuft deshalb synchron im nächtlichen Befehl
+ * `fotostation:render-changed` (Scheduler) oder von Hand über „Commands“.
  */
-class RenderSeries implements ShouldBeUnique, ShouldQueue
+class RenderSeries
 {
-    use Queueable;
-
-    public int $tries = 2;
-
-    public int $timeout = 900;
-
-    public int $uniqueFor = 3600;
-
-    public function __construct(public Station $station)
-    {
-        $this->onQueue('render');
-    }
-
-    public function uniqueId(): string
-    {
-        return (string) $this->station->id;
-    }
+    public function __construct(public Station $station) {}
 
     public function handle(CvWorker $worker, PhotoStorage $storage): void
     {
@@ -68,13 +55,22 @@ class RenderSeries implements ShouldBeUnique, ShouldQueue
 
         $videoPath = "{$station->id}/series/{$series->id}.mp4";
 
-        $result = $worker->render(
-            framePaths: $frames->pluck('public_path')->all(),
-            fps: (int) config('fotostation.render.fps'),
-            width: $station->output_width,
-            height: $station->output_height,
-            targetPath: $videoPath,
-        );
+        try {
+            $result = $worker->render(
+                framePaths: $frames->pluck('public_path')->all(),
+                fps: (int) config('fotostation.render.fps'),
+                width: $station->output_width,
+                height: $station->output_height,
+                targetPath: $videoPath,
+            );
+        } catch (Throwable $e) {
+            // Unfertige Reihe aufräumen; needs_render bleibt gesetzt, damit es
+            // in der nächsten Nacht erneut versucht wird.
+            $series->delete();
+            Log::error('Zeitraffer konnte nicht erstellt werden.', ['station' => $station->id, 'error' => $e->getMessage()]);
+
+            throw $e;
+        }
 
         DB::transaction(function () use ($series, $frames, $videoPath, $result, $station, $previous, $storage): void {
             $series->forceFill([
@@ -106,12 +102,5 @@ class RenderSeries implements ShouldBeUnique, ShouldQueue
             }
             $old->delete();
         }
-    }
-
-    public function failed(?\Throwable $exception): void
-    {
-        // Unfertige Reihe ohne Video aufräumen; needs_render bleibt gesetzt,
-        // damit es in der nächsten Nacht erneut versucht wird.
-        $this->station->series()->whereNull('rendered_at')->delete();
     }
 }

@@ -4,7 +4,6 @@ namespace App\Services;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -79,7 +78,7 @@ class CvWorker
     public function render(array $framePaths, int $fps, int $width, int $height, string $targetPath): array
     {
         return $this->client()
-            ->timeout(max(300, (int) config('fotostation.worker.timeout')))
+            ->timeout((int) config('fotostation.worker.render_timeout'))
             ->post('/render', [
                 'frame_urls' => array_map(fn (string $p) => $this->storage->readUrl($p, public: true), $framePaths),
                 'fps' => $fps,
@@ -97,10 +96,11 @@ class CvWorker
             ->withToken((string) $config['token'])
             ->acceptJson()
             ->asJson()
+            ->connectTimeout(5)
             ->timeout($config['timeout'])
-            ->retry(2, 2000, function (\Throwable $e): bool {
-                return $e instanceof ConnectionException
-                    || ($e instanceof RequestException && $e->response->serverError());
-            }, throw: false);
+            // Nur Verbindungsfehler sofort wiederholen; alles andere übernehmen
+            // die Wiederholungen des Jobs (sonst würde die Laufzeitgrenze der
+            // Queue-Worker überschritten).
+            ->retry(2, 1000, fn (\Throwable $e): bool => $e instanceof ConnectionException, throw: false);
     }
 }

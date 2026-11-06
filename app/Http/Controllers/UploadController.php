@@ -91,7 +91,7 @@ class UploadController extends Controller
             new AlignImage($submission),
             new DetectFaces($submission),
             new MarkForReview($submission),
-        ])->onQueue('uploads')->dispatch();
+        ])->onQueue(config('fotostation.queue'))->dispatch();
 
         return redirect()->to($this->thanksUrl($station));
     }
