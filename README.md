@@ -41,7 +41,72 @@ Diese Anwendung wurde in einer Umgebung ohne Zugriff auf Packagist geschrieben. 
 - **PHP:** Syntax aller Dateien geprüft, Blade-Templates kompiliert, API-Aufrufe mit dem Quelltext von Laravel 13.5 und Filament 5.9 abgeglichen. **Die PHPUnit-Tests (`tests/`) liefen noch nie.** Bitte zuerst `php artisan test` ausführen und Fehler beheben.
 - **cv-worker:** vollständig getestet (20 Tests mit synthetischen Bildern, inkl. Abgleich, Ausrichtung, Verpixeln, Zeitraffer, Auth, vorsignierten S3-URLs). Nicht getestet ist die Gesichtserkennung, weil das YuNet-Modell hier nicht herunterladbar war; das Dockerfile lädt es beim Build.
 
-## Lokale Entwicklung
+## Lokale Entwicklung mit Laravel Sail (empfohlen)
+
+`docker-compose.yml` bildet die komplette Umgebung nach, inklusive cv-worker:
+
+| Dienst | Zweck | Vom Rechner aus |
+| --- | --- | --- |
+| `laravel.test` | App (PHP 8.5, `artisan serve`), Vite | http://localhost, Vite :5173 |
+| `queue` | `queue:listen --queue=uploads` (lädt Codeänderungen automatisch) | |
+| `scheduler` | `schedule:work` (nächtliche Aufgaben) | |
+| `pgsql` | PostgreSQL 18 | localhost:5432 |
+| `rustfs` | S3-Speicher mit `photos-private` und `photos-public` | http://localhost:9000, Konsole :9001 |
+| `s3-setup` | legt die Buckets an und macht `photos-public` öffentlich lesbar, beendet sich danach | |
+| `cv-worker` | Bildverarbeitung aus `cv-worker/` | http://localhost:8001/health |
+| `mailpit` | fängt alle Mails ab | http://localhost:8025 |
+
+RustFS statt MinIO: Die Images `minio/minio` und `minio/mc` gibt es auf Docker Hub nicht mehr. Laravel Sail nutzt inzwischen ebenfalls RustFS.
+
+### Einmalig einrichten
+
+```bash
+# 1. Hostname für den S3-Speicher. Vorsignierte URLs sind an den Hostnamen
+#    gebunden, deshalb müssen Browser, Laravel und cv-worker dieselbe Adresse
+#    nutzen: http://rustfs:9000. (Windows: C:\Windows\System32\drivers\etc\hosts)
+echo "127.0.0.1 rustfs" | sudo tee -a /etc/hosts
+
+# 2. Abhängigkeiten installieren (Sail liegt in vendor/, daher vor dem ersten Start)
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/var/www/html" -w /var/www/html \
+    -e COMPOSER_HOME=/tmp/composer \
+    laravelsail/php84-composer:latest composer install --ignore-platform-reqs
+
+# 3. Umgebung
+cp .env.sail.example .env
+
+# 4. Starten (der erste Build dauert einige Minuten, auch wegen des Gesichtsmodells)
+./vendor/bin/sail up -d --build
+./vendor/bin/sail artisan key:generate
+./vendor/bin/sail artisan migrate
+./vendor/bin/sail artisan fotostation:create-admin du@example.de "Dein Name"
+./vendor/bin/sail npm install
+./vendor/bin/sail npm run build    # oder: sail npm run dev
+```
+
+Tipp: `alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'`.
+
+### Im Alltag
+
+```bash
+sail up -d                                  # alles starten
+sail logs -f queue cv-worker                # Verarbeitungskette beobachten
+sail artisan fotostation:render-changed     # Zeitraffer sofort statt nachts
+sail artisan test                           # PHPUnit (SQLite im Speicher)
+sail down                                   # stoppen (Daten bleiben in den Volumes)
+sail down -v                                # stoppen und alle Daten löschen
+```
+
+Ohne Worker testen: In `.env` `CV_WORKER_ENABLED=false` setzen, dann `sail artisan config:clear` und `sail restart queue`.
+
+Hinweise:
+
+- Fehlt der Eintrag in `/etc/hosts`, laufen Uploads und Verarbeitung trotzdem. Nur die Vorschaubilder in der Moderation und die öffentlichen Fotos laden im Browser nicht.
+- Mit dem Handy im WLAN testen (QR-Code): In `.env` `APP_URL`, `PHOTOS_ENDPOINT` und `PHOTOS_PUBLIC_URL` auf die LAN-IP des Rechners umstellen. Für den Hostnamen `rustfs` bräuchte das Handy einen eigenen DNS-Eintrag, das ist noch nicht vorbereitet.
+- Portkonflikte (z. B. ein lokales PostgreSQL): `APP_PORT`, `FORWARD_*` in `.env` anpassen.
+
+## Lokale Entwicklung ohne Sail
+
+Achtung: `docker-compose.dev.yml` nutzt noch `minio/minio` und `minio/mc`. Diese Images gibt es auf Docker Hub nicht mehr, deshalb startet die Datei derzeit nicht. Besser die Sail-Variante oben verwenden.
 
 ```bash
 composer install
