@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AltchaController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\UploadController;
@@ -16,6 +17,11 @@ Route::post('/s/{station}', [UploadController::class, 'store'])
 Route::get('/s/{station}/danke', [UploadController::class, 'thanks'])
     ->middleware('signed')
     ->name('upload.thanks');
+
+// Spamschutz: Aufgabe für das ALTCHA-Widget
+Route::get('/altcha/challenge', [AltchaController::class, 'challenge'])
+    ->middleware('throttle:altcha')
+    ->name('altcha.challenge');
 
 // Galerie und Zeitraffer
 Route::get('/stationen', [StationController::class, 'index'])->name('stations.index');

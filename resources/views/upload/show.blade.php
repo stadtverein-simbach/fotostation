@@ -61,8 +61,8 @@
             </label>
 
             @if (config('fotostation.captcha.enabled'))
-                <div class="frc-captcha" data-sitekey="{{ config('fotostation.captcha.sitekey') }}"
-                     data-endpoint="{{ config('fotostation.captcha.endpoint') }}" data-lang="de"></div>
+                <altcha-widget name="altcha" challenge="{{ route('altcha.challenge') }}"
+                               language="de" auto="onfocus"></altcha-widget>
             @endif
 
             <button type="submit" class="w-full rounded-lg bg-stone-900 px-4 py-3 font-medium text-white disabled:opacity-60">

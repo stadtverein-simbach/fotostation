@@ -39,6 +39,12 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('altcha', function (Request $request): Limit {
+            $ip = hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'));
+
+            return Limit::perMinute(30)->by("altcha:{$ip}");
+        });
+
         RateLimiter::for('reports', function (Request $request): Limit {
             $ip = hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'));
 

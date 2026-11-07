@@ -21,7 +21,7 @@
         <p>Rechtsgrundlagen: Art. 6 Abs. 1 lit. a und b DSGVO (Einwilligung und Nutzungsbedingungen) für das Foto, Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an Missbrauchsschutz) für den IP-Hashwert und die Spamprüfung.</p>
 
         <h2 class="text-lg font-semibold">Spamschutz</h2>
-        <p>Wir nutzen Friendly Captcha (Friendly Captcha GmbH, Deutschland) über den EU-Endpunkt. Dabei wird kein Cookie gesetzt.</p>
+        <p>Zum Schutz vor automatisierten Uploads nutzen wir ALTCHA. Dabei löst dein Browser eine kleine Rechenaufgabe, die wir auf unserem eigenen Server prüfen. Es werden keine Daten an Dritte übermittelt, kein Cookie gesetzt und keine personenbezogenen Daten gespeichert.</p>
 
         <h2 class="text-lg font-semibold">Hosting und Empfänger</h2>
         <ul class="list-disc pl-5">
