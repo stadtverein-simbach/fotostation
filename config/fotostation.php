@@ -71,6 +71,31 @@ return [
     ],
 
     /*
+    | Originale nach der Veröffentlichung im privaten Bucket behalten
+    | (neu kodiert, ohne Metadaten, aber unverpixelt). Gelöscht werden sie
+    | weiterhin bei Ablehnung, Entfernung und über die Löschfristen. Die
+    | Datenschutzerklärung richtet sich nach diesem Wert.
+    */
+
+    'keep_originals' => (bool) env('FOTOSTATION_KEEP_ORIGINALS', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ausrichtung
+    |--------------------------------------------------------------------------
+    |
+    | Der Worker schneidet je Station einen Sicherheitsrand ab und ergänzt
+    | dann noch fehlende Ränder aus dem Referenzbild. Liegt der Anteil echter
+    | Fotopixel darunter, wird das Foto in der Moderation markiert und nicht
+    | über die Sammelfreigabe veröffentlicht.
+    |
+    */
+
+    'alignment' => [
+        'min_coverage' => (float) env('FOTOSTATION_MIN_COVERAGE', 0.85),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Bildverarbeitungs-Worker (Python/OpenCV, eigener Server)
     |--------------------------------------------------------------------------

@@ -15,6 +15,7 @@ from threading import Lock
 from urllib.parse import urlsplit
 
 import httpx
+import numpy as np
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -97,23 +98,35 @@ def _cache_key(url: str) -> str:
 
 
 class _ReferenceCache:
+    """Merkmale und Bilddaten der Referenzbilder (pro Station eines).
+
+    Die Bilddaten bleiben komprimiert im Speicher und werden erst beim
+    Ausrichten dekodiert (zum Auffüllen von Lücken)."""
+
     def __init__(self, size: int = 16):
-        self._items: OrderedDict[str, vision.Features] = OrderedDict()
+        self._items: OrderedDict[str, tuple[vision.Features, bytes]] = OrderedDict()
         self._size = size
         self._lock = Lock()
 
-    def get(self, url: str) -> vision.Features:
+    def _entry(self, url: str) -> tuple[vision.Features, bytes]:
         key = _cache_key(url)
         with self._lock:
             if key in self._items:
                 self._items.move_to_end(key)
                 return self._items[key]
-        features = vision.features(vision.decode(download(url)))
+        data = download(url)
+        entry = (vision.features(vision.decode(data)), data)
         with self._lock:
-            self._items[key] = features
+            self._items[key] = entry
             while len(self._items) > self._size:
                 self._items.popitem(last=False)
-        return features
+        return entry
+
+    def get(self, url: str) -> vision.Features:
+        return self._entry(url)[0]
+
+    def image(self, url: str) -> np.ndarray:
+        return vision.decode(self._entry(url)[1])
 
 
 references = _ReferenceCache()
@@ -144,6 +157,8 @@ class AlignRequest(BaseModel):
     homography: list[list[float]] = Field(min_length=3, max_length=3)
     width: int = Field(gt=0, le=8000)
     height: int = Field(gt=0, le=8000)
+    # Sicherheitsrand je Seite als Anteil (0.04 = 4 %)
+    margin: float = Field(default=0.0, ge=0.0, le=0.2)
     upload: UploadTarget
 
 
@@ -220,11 +235,12 @@ def faces(request: FacesRequest) -> dict:
 @app.post("/align", dependencies=[Depends(require_token)])
 def align(request: AlignRequest) -> dict:
     def run():
-        reference = references.get(request.reference_url)
+        reference = references.image(request.reference_url)
         image = vision.decode(download(request.image_url))
-        aligned = vision.align(image, request.homography, reference.size, (request.width, request.height))
-        upload(request.upload, vision.encode_jpeg(aligned), "image/jpeg")
-        return {"width": aligned.shape[1], "height": aligned.shape[0]}
+        aligned = vision.align(image, request.homography, reference, (request.width, request.height), request.margin)
+        upload(request.upload, vision.encode_jpeg(aligned.image), "image/jpeg")
+        log.info("align coverage=%.3f margin=%.3f", aligned.coverage, request.margin)
+        return {"width": aligned.image.shape[1], "height": aligned.image.shape[0], "coverage": round(aligned.coverage, 4)}
 
     return _vision_errors(run)
 

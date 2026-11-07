@@ -74,10 +74,13 @@ def test_match_align_blur_pipeline(client):
         "homography": body["homography"],
         "width": 1600,
         "height": 1200,
+        "margin": 0.04,
         "upload": {"url": "https://bucket.test/aligned/1/a.jpg?sig", "headers": {"Content-Type": "image/jpeg"}},
     })
     assert align.status_code == 200, align.text
-    assert align.json() == {"width": 1600, "height": 1200}
+    result = align.json()
+    assert (result["width"], result["height"]) == (1600, 1200)
+    assert 0.0 < result["coverage"] <= 1.0
     assert "https://bucket.test/aligned/1/a.jpg" in client.uploads
 
     blur = client.post("/blur", headers=auth(), json={

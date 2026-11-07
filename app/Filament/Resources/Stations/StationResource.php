@@ -88,6 +88,9 @@ class StationResource extends Resource
                         ->helperText('Seitenverhältnis wie das Referenzbild wählen.'),
                     TextInput::make('min_inliers')->label('Mindest-Inlier')->numeric()->default(40)->required()
                         ->helperText('Weniger übereinstimmende Merkmale = automatisch abgelehnt. Mit der Stichprobe justieren.'),
+                    TextInput::make('crop_margin')->label('Sicherheitsrand (%)')
+                        ->numeric()->minValue(0)->maxValue(20)->step(0.5)->default(4)->required()
+                        ->helperText('Wird nach dem Ausrichten an jeder Seite abgeschnitten, damit kleine Abweichungen im Bildausschnitt nicht auffallen. Was dann noch fehlt, wird aus dem Referenzbild ergänzt. Gilt für neue Uploads.'),
                 ]),
         ]);
     }

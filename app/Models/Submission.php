@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Storage;
     'station_id', 'status', 'original_path', 'review_thumb_path', 'aligned_path',
     'public_path', 'thumb_path', 'taken_at', 'width', 'height', 'display_name',
     'consent_version_id', 'consent_at', 'ip_hash', 'sha256', 'phash',
-    'match_inliers', 'match_score', 'homography', 'face_boxes', 'manual_boxes',
+    'match_inliers', 'match_score', 'homography', 'coverage', 'face_boxes', 'manual_boxes',
     'rejection_reason', 'error', 'reviewed_by', 'reviewed_at', 'published_at',
 ])]
 #[Hidden(['ip_hash'])]
@@ -43,6 +43,7 @@ class Submission extends Model
             'manual_boxes' => 'array',
             'match_inliers' => 'integer',
             'match_score' => 'float',
+            'coverage' => 'float',
         ];
     }
 
@@ -74,6 +75,15 @@ class Submission extends Model
     public function transitionTo(SubmissionStatus $status, array $attributes = []): void
     {
         $this->forceFill(['status' => $status, ...$attributes])->save();
+    }
+
+    /**
+     * Zu viel Rand musste aus dem Referenzbild ergänzt werden.
+     */
+    public function hasLowCoverage(): bool
+    {
+        return $this->coverage !== null
+            && $this->coverage < (float) config('fotostation.alignment.min_coverage');
     }
 
     /*
@@ -122,6 +132,30 @@ class Submission extends Model
 
         $this->forceFill([
             'original_path' => null,
+            'review_thumb_path' => null,
+            'aligned_path' => null,
+        ])->saveQuietly();
+    }
+
+    /**
+     * Nach der Veröffentlichung: Arbeitsdateien löschen, das Original je nach
+     * Einstellung (fotostation.keep_originals) behalten.
+     */
+    public function deleteWorkingFiles(): void
+    {
+        if (! config('fotostation.keep_originals')) {
+            $this->deletePrivateFiles();
+
+            return;
+        }
+
+        $paths = array_filter([$this->review_thumb_path, $this->aligned_path]);
+
+        if ($paths !== []) {
+            Storage::disk(config('fotostation.disks.private'))->delete($paths);
+        }
+
+        $this->forceFill([
             'review_thumb_path' => null,
             'aligned_path' => null,
         ])->saveQuietly();
