@@ -72,6 +72,14 @@ class SubmissionResource extends Resource
                     TextEntry::make('display_name')->label('Name')->placeholder('anonym'),
                     TextEntry::make('match_inliers')->label('Bildabgleich (Inlier)')
                         ->helperText(fn (Submission $record): string => 'Schwelle der Station: '.$record->station->min_inliers),
+                    TextEntry::make('coverage')->label('Abdeckung durch das Foto')
+                        ->formatStateUsing(fn (?float $state): string => static::percent($state))
+                        ->placeholder('–')
+                        ->color(fn (Submission $record): ?string => $record->hasLowCoverage() ? 'danger' : null)
+                        ->helperText(fn (Submission $record): ?string => $record->coverage === null ? null
+                            : ($record->hasLowCoverage()
+                                ? 'Großer Teil des Rands stammt aus dem Referenzbild (Foto weicht stark vom Rahmen ab). Prüfen, ob das Ergebnis noch gut aussieht.'
+                                : 'Rest am Rand aus dem Referenzbild ergänzt.')),
                     TextEntry::make('face_boxes')->label('Erkannte Gesichter')
                         ->state(fn (Submission $record): int => count($record->face_boxes ?? [])),
                     TextEntry::make('consentVersion.version')->label('Zustimmung (Version)'),
@@ -97,6 +105,14 @@ class SubmissionResource extends Resource
                 TextColumn::make('status')->badge()->sortable(),
                 TextColumn::make('station.name')->label('Station')->toggleable(),
                 TextColumn::make('match_inliers')->label('Inlier')->numeric()->sortable(),
+                TextColumn::make('coverage')
+                    ->label('Abdeckung')
+                    ->formatStateUsing(fn (?float $state): string => static::percent($state))
+                    ->placeholder('–')
+                    ->color(fn (Submission $record): ?string => $record->hasLowCoverage() ? 'danger' : null)
+                    ->icon(fn (Submission $record): ?string => $record->hasLowCoverage() ? 'heroicon-o-exclamation-triangle' : null)
+                    ->sortable()
+                    ->toggleable(),
                 TextColumn::make('face_boxes')
                     ->label('Gesichter')
                     ->state(fn (Submission $record): int => count($record->face_boxes ?? [])),
@@ -119,6 +135,11 @@ class SubmissionResource extends Resource
                     SubmissionActions::bulkApprove(),
                 ]),
             ]);
+    }
+
+    private static function percent(?float $value): string
+    {
+        return $value === null ? '–' : number_format($value * 100, 0, ',', '.').' %';
     }
 
     public static function getPages(): array

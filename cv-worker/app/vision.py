@@ -133,12 +133,76 @@ def plausible(h: np.ndarray, image_size: tuple[int, int], reference_size: tuple[
     return 0.15 * reference_area <= area <= 6.0 * reference_area
 
 
-def align(image: np.ndarray, homography: list[list[float]], reference_size: tuple[int, int], output_size: tuple[int, int]) -> np.ndarray:
-    h = np.array(homography, dtype=np.float64)
-    warped = cv2.warpPerspective(image, h, reference_size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    if reference_size != output_size:
-        warped = cv2.resize(warped, output_size, interpolation=cv2.INTER_AREA)
-    return warped
+@dataclass(frozen=True)
+class Aligned:
+    image: np.ndarray
+    coverage: float  # Anteil echter Fotopixel im Ausschnitt (0..1)
+
+
+def align(
+    image: np.ndarray,
+    homography: list[list[float]],
+    reference: np.ndarray,
+    output_size: tuple[int, int],
+    margin: float = 0.0,
+) -> Aligned:
+    """Entzerrt das Foto auf die Referenz, schneidet den Sicherheitsrand ab
+    und füllt Lücken (vom Foto nicht abgedeckte Bereiche) aus dem Referenzbild.
+
+    margin: Anteil, der an jeder Seite abgeschnitten wird (0.04 = 4 %).
+    Weil an allen Seiten gleich viel wegfällt, bleibt das Seitenverhältnis
+    und der Ausschnitt ist für alle Fotos einer Station identisch.
+    """
+    ref_h, ref_w = reference.shape[:2]
+    mx, my = round(ref_w * margin), round(ref_h * margin)
+    width, height = ref_w - 2 * mx, ref_h - 2 * my
+    if width < 16 or height < 16:
+        raise VisionError("Sicherheitsrand zu groß.")
+
+    # Homographie um den Rand verschieben: direkt in den Ausschnitt rechnen.
+    shift = np.array([[1, 0, -mx], [0, 1, -my], [0, 0, 1]], dtype=np.float64)
+    h = shift @ np.array(homography, dtype=np.float64)
+    size = (width, height)
+
+    warped = cv2.warpPerspective(image, h, size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    mask = cv2.warpPerspective(
+        np.full(image.shape[:2], 255, np.uint8), h, size, flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0
+    )
+    # Interpolierte Kantenpixel sind mit Schwarz gemischt: knapp nach innen ziehen.
+    mask = cv2.erode(mask, np.ones((3, 3), np.uint8), iterations=2)
+    coverage = float(np.count_nonzero(mask)) / mask.size
+
+    result = warped
+    if coverage < 1.0:
+        fill = reference[my : my + height, mx : mx + width]
+        result = _blend(warped, _match_colors(fill, warped, mask), mask)
+
+    if size != output_size:
+        result = cv2.resize(result, output_size, interpolation=cv2.INTER_AREA)
+    return Aligned(result, coverage)
+
+
+def _match_colors(fill: np.ndarray, photo: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Gleicht Helligkeit und Farbe des Referenzbilds grob an das Foto an
+    (anderes Licht, andere Jahreszeit), damit die Ergänzung weniger auffällt."""
+    valid = mask > 0
+    if np.count_nonzero(valid) < 1000:
+        return fill
+    photo_mean = photo[valid].reshape(-1, 3).mean(axis=0)
+    fill_mean = np.maximum(fill[valid].reshape(-1, 3).mean(axis=0), 1.0)
+    gain = np.clip(photo_mean / fill_mean, 0.6, 1.6)
+    return np.clip(fill.astype(np.float32) * gain, 0, 255).astype(np.uint8)
+
+
+def _blend(photo: np.ndarray, fill: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Weicher Übergang: Am Rand des Fotos über einige Pixel ins Referenzbild blenden."""
+    feather = max(8.0, 0.015 * max(mask.shape))
+    # Rahmen mit gültigen Pixeln, damit der Bildrand selbst nicht als Kante zählt.
+    padded = cv2.copyMakeBorder(mask, 1, 1, 1, 1, cv2.BORDER_REPLICATE)
+    distance = cv2.distanceTransform((padded > 0).astype(np.uint8), cv2.DIST_L2, 5)[1:-1, 1:-1]
+    alpha = np.clip(distance / feather, 0.0, 1.0)[..., None]
+    blended = photo.astype(np.float32) * alpha + fill.astype(np.float32) * (1.0 - alpha)
+    return np.clip(blended, 0, 255).astype(np.uint8)
 
 
 @lru_cache(maxsize=1)

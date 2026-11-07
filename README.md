@@ -13,7 +13,7 @@ Mit `CV_WORKER_ENABLED=false` (Standard) läuft die Fotostation ganz ohne VPS, n
 |---|---|---|
 | Upload, Neu-Kodieren, Duplikate, Rate-Limit | ja | ja |
 | Abgleich mit dem Referenzbild (Spamfilter, `auto_rejected`) | nein, alles geht in die Moderation | ja |
-| Ausrichtung auf die Referenz | nein, nur mittiger Zuschnitt auf das Stationsformat | ja (Homographie) |
+| Ausrichtung auf die Referenz | nein, nur mittiger Zuschnitt auf das Stationsformat | ja (Homographie, Sicherheitsrand, fehlende Ränder aus dem Referenzbild ergänzt) |
 | Gesichtserkennung und automatisches Verpixeln | nein, Bereiche von Hand markieren oder ablehnen | ja |
 | Verpixeln von Hand markierter Bereiche | ja (GD) | ja |
 | Zeitraffer | nein (nächtlicher Befehl wird übersprungen) | ja |
@@ -29,7 +29,9 @@ Später einschalten: Worker aufsetzen (siehe unten), `CV_WORKER_ENABLED=true`, `
 3. Queue `uploads` (konfigurierbar über `FOTOSTATION_QUEUE`), mit Worker: `MatchReference` → `AlignImage` → `DetectFaces` → `MarkForReview`. Jeder Job bleibt unter 90 Sekunden (Grenze der Flex-Worker bei Laravel Cloud Managed Queues).
    - Passt das Foto nicht zum Referenzbild der Station, wird es `auto_rejected` (Stichprobe im Admin, Löschung nach 7 Tagen).
 4. Moderation in Filament (`/admin`): Freigeben (mit optionalen zusätzlichen Verpixel-Bereichen) oder Ablehnen (Dateien werden sofort gelöscht).
-5. `PublishSubmission`: Gesichter und markierte Bereiche verpixeln, öffentliche Fassung und Thumbnail schreiben, Originale löschen.
+5. `PublishSubmission`: Gesichter und markierte Bereiche verpixeln, öffentliche Fassung und Thumbnail schreiben, Arbeitsdateien löschen. Das Original (neu kodiert, ohne Metadaten) bleibt mit `FOTOSTATION_KEEP_ORIGINALS=true` (Standard) privat erhalten und ist in der Moderation über „Original“ abrufbar. Gelöscht wird es bei Ablehnung oder Entfernung des Fotos. Die Datenschutzerklärung passt sich der Einstellung an.
+
+Zur Ausrichtung (`AlignImage`): Der Worker schneidet an jeder Seite den Sicherheitsrand der Station ab (Standard 4 %). Was das Foto danach immer noch nicht abdeckt, ergänzt er weich überblendet aus dem Referenzbild, statt Randpixel zu Streifen zu ziehen. Der Anteil echter Fotopixel wird als „Abdeckung“ gespeichert. Liegt er unter `FOTOSTATION_MIN_COVERAGE` (Standard 85 %), ist das Foto in der Moderation markiert und wird von der Sammelfreigabe übersprungen.
 6. Nachts um 3:00 Uhr, alles gebündelt (die Datenbank wacht nur einmal auf): Zeitraffer neu rendern (nur bei Änderungen, **synchron im Befehl**, nicht in der Queue), Löschfristen (`model:prune`), IP-Hashes löschen, Fehler melden.
 
 Abweichung vom Architektur-Doc: Den früheren Job `ProcessUpload` (Hashes, Duplikate, Thumbnail) gibt es nicht mehr, das passiert direkt im Request zusammen mit dem Neu-Kodieren. Dadurch landet nie eine Datei mit GPS-Daten im Speicher. Die Gesichtserkennung läuft nach der Ausrichtung, damit die Boxen im ausgerichteten Bild liegen.
@@ -179,7 +181,7 @@ curl https://$WORKER_DOMAIN/health
 
 1. Station anlegen (Admin → Stationen): Name, Kurzname (steht im QR-Code, später nicht mehr ändern), Referenzbild aus dem Rahmen bei Tageslicht, Ausgabegröße im Seitenverhältnis des Referenzbilds.
 2. QR-Code als SVG herunterladen (Aktion „QR-Code“) und aufs Schild bringen.
-3. Ein paar Testfotos hochladen und unter „Einreichungen“ die Inlier-Werte ansehen. `Mindest-Inlier` so einstellen, dass echte Fotos sicher darüber liegen (Startwert 40). Fremde Bilder liegen in Tests meist unter 15.
+3. Ein paar Testfotos hochladen und unter „Einreichungen“ die Inlier-Werte ansehen. `Mindest-Inlier` so einstellen, dass echte Fotos sicher darüber liegen (Startwert 40). Fremde Bilder liegen in Tests meist unter 15. Zeigen viele Fotos eine geringe Abdeckung, den `Sicherheitsrand` der Station erhöhen.
 4. Impressum, Datenschutz und Nutzungsbedingungen in `resources/views/pages/` vervollständigen (TODO-Kommentare) und prüfen lassen.
 
 ## Struktur

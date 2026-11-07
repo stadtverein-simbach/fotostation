@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'slug', 'name', 'description', 'lat', 'lng', 'reference_path',
-    'output_width', 'output_height', 'min_inliers', 'is_active',
+    'output_width', 'output_height', 'crop_margin', 'min_inliers', 'is_active',
 ])]
 class Station extends Model
 {
@@ -28,6 +28,7 @@ class Station extends Model
             'output_width' => 'integer',
             'output_height' => 'integer',
             'min_inliers' => 'integer',
+            'crop_margin' => 'float',
         ];
     }
 
@@ -66,6 +67,14 @@ class Station extends Model
     public function uploadUrl(): string
     {
         return route('upload.show', $this);
+    }
+
+    /**
+     * Sicherheitsrand als Anteil je Seite (4 % => 0.04).
+     */
+    public function cropMarginFraction(): float
+    {
+        return max(0.0, min(20.0, (float) $this->crop_margin)) / 100;
     }
 
     public function isReady(): bool

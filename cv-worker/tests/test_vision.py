@@ -45,7 +45,7 @@ def test_match_finds_station_and_align_restores_reference():
     assert result.inliers > 100
     assert result.homography is not None
 
-    aligned = vision.align(photo, result.homography, (1600, 1200), (1600, 1200))
+    aligned = vision.align(photo, result.homography, reference, (1600, 1200)).image
     # Innenbereich vergleichen (Ränder können durch die Perspektive fehlen).
     inner = (slice(150, 1050), slice(150, 1450))
     a = cv2.cvtColor(aligned, cv2.COLOR_BGR2GRAY)[inner].astype(float)
@@ -73,8 +73,56 @@ def test_match_handles_featureless_image():
 def test_align_resizes_to_output_size():
     image = scene(3)
     identity = np.eye(3).tolist()
-    aligned = vision.align(image, identity, (1600, 1200), (800, 600))
-    assert aligned.shape[:2] == (600, 800)
+    aligned = vision.align(image, identity, image, (800, 600))
+    assert aligned.image.shape[:2] == (600, 800)
+    assert aligned.coverage == 1.0
+
+
+def shifted(image: np.ndarray, dx: float, dy: float) -> list[list[float]]:
+    return [[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]]
+
+
+def test_align_fills_gaps_from_reference_instead_of_streaks():
+    reference = scene(11)
+    photo = cv2.convertScaleAbs(scene(11), alpha=0.8)  # gleiche Szene, dunkler
+    # Foto um 160 px nach rechts verschoben: links fehlen 10 % der Breite.
+    result = vision.align(photo, shifted(photo, 160, 0), reference, (1600, 1200))
+
+    assert result.coverage == pytest.approx(0.9, abs=0.01)
+    left = result.image[:, :100].astype(float)
+    # Keine Streifen: Die Lücke zeigt die Struktur des Referenzbilds
+    # (an die Helligkeit des Fotos angeglichen), nicht kopierte Randpixel.
+    expected = cv2.convertScaleAbs(reference, alpha=0.8)[:, :100].astype(float)
+    correlation = np.corrcoef(left.ravel(), expected.ravel())[0, 1]
+    assert correlation > 0.9
+    assert abs(left.mean() - expected.mean()) < 12
+    # Weit innen bleibt das Foto unverändert.
+    assert np.abs(result.image[:, 400:].astype(int) - photo[:, 240:1440].astype(int)).mean() < 1
+
+
+def test_align_margin_crops_evenly_and_hides_small_gaps():
+    reference = scene(12)
+    # Kleine Verschiebung (30 px), Rand 4 % = 64 px: Lücke liegt ganz im Rand.
+    result = vision.align(reference, shifted(reference, 30, 20), reference, (1600, 1200), margin=0.04)
+
+    assert result.coverage == 1.0
+    assert result.image.shape[:2] == (1200, 1600)
+
+
+def test_align_margin_keeps_frame_identical_for_all_photos():
+    reference = scene(13)
+    identity = np.eye(3).tolist()
+    result = vision.align(reference, identity, reference, (1472, 1104), margin=0.04)
+    # Ausschnitt = Referenz ohne 64/48 px an jeder Seite
+    expected = reference[48:1152, 64:1536]
+    assert result.image.shape[:2] == expected.shape[:2]
+    assert np.abs(result.image.astype(int) - expected.astype(int)).mean() < 1
+
+
+def test_align_rejects_excessive_margin():
+    image = scene(3, size=(20, 15))
+    with pytest.raises(vision.VisionError):
+        vision.align(image, np.eye(3).tolist(), image, (20, 15), margin=0.2)
 
 
 def test_pixelate_changes_only_the_box():

@@ -18,6 +18,7 @@ class ViewSubmission extends ViewRecord
             SubmissionActions::rescue(),
             SubmissionActions::retry(),
             SubmissionActions::unpublish(),
+            SubmissionActions::openOriginal(),
         ];
     }
 }
