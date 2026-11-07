@@ -11,7 +11,8 @@ use RuntimeException;
  * Verarbeitet ein hochgeladenes Foto synchron im Request, bevor irgendetwas
  * gespeichert wird:
  *
- * - liest das Aufnahmedatum (EXIF DateTimeOriginal),
+ * - liest das Aufnahmedatum (EXIF DateTimeOriginal, mit Zeitzone aus
+ *   OffsetTimeOriginal, falls vorhanden) und einige Kameraangaben (ExifData),
  * - dreht das Bild gemäß EXIF-Orientation,
  * - verkleinert auf eine maximale Kantenlänge,
  * - kodiert neu als JPEG (dabei gehen alle Metadaten inkl. GPS verloren),
@@ -66,6 +67,7 @@ class ImageProcessor
             sha256: hash('sha256', $jpeg),
             phash: $this->dHash($image),
             takenAt: $this->takenAt($exif),
+            exif: ExifData::fromArray($exif),
         );
     }
 
@@ -192,17 +194,32 @@ class ImageProcessor
 
     private function takenAt(array $exif): ?DateTimeImmutable
     {
-        $value = $exif['DateTimeOriginal'] ?? $exif['DateTimeDigitized'] ?? null;
+        if (is_string($exif['DateTimeOriginal'] ?? null)) {
+            $value = $exif['DateTimeOriginal'];
+            // Ältere PHP-Versionen kennen die Namen der Offset-Tags noch nicht.
+            $offset = $exif['OffsetTimeOriginal'] ?? $exif['UndefinedTag:0x9011'] ?? null;
+        } else {
+            $value = $exif['DateTimeDigitized'] ?? null;
+            $offset = $exif['OffsetTimeDigitized'] ?? $exif['UndefinedTag:0x9012'] ?? null;
+        }
 
         if (! is_string($value)) {
             return null;
         }
 
-        $date = DateTimeImmutable::createFromFormat('Y:m:d H:i:s', trim($value), new DateTimeZone($this->timezone));
+        $local = new DateTimeZone($this->timezone);
+        // Ohne Zeitzonenangabe im Foto nehmen wir die der Anwendung an.
+        $zone = is_string($offset) && preg_match('/^[+-](0\d|1[0-4]):[0-5]\d$/', trim($offset))
+            ? new DateTimeZone(trim($offset))
+            : $local;
+
+        $date = DateTimeImmutable::createFromFormat('!Y:m:d H:i:s', trim($value), $zone);
 
         if ($date === false) {
             return null;
         }
+
+        $date = $date->setTimezone($local);
 
         // Offensichtlich falsche Kameradaten (Werkseinstellung, Zukunft) verwerfen.
         $now = new DateTimeImmutable('now', new DateTimeZone($this->timezone));

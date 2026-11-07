@@ -14,5 +14,6 @@ final readonly class ProcessedImage
         public string $sha256,
         public string $phash,
         public ?DateTimeImmutable $takenAt,
+        public ExifData $exif = new ExifData,
     ) {}
 }
