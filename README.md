@@ -103,6 +103,7 @@ Hinweise:
 - Fehlt der Eintrag in `/etc/hosts`, laufen Uploads und Verarbeitung trotzdem. Nur die Vorschaubilder in der Moderation und die öffentlichen Fotos laden im Browser nicht.
 - Mit dem Handy im WLAN testen (QR-Code): In `.env` `APP_URL`, `PHOTOS_ENDPOINT` und `PHOTOS_PUBLIC_URL` auf die LAN-IP des Rechners umstellen. Für den Hostnamen `rustfs` bräuchte das Handy einen eigenen DNS-Eintrag, das ist noch nicht vorbereitet.
 - Portkonflikte (z. B. ein lokales PostgreSQL): `APP_PORT`, `FORWARD_*` in `.env` anpassen.
+- `php artisan sail:install` nicht ausführen: Es legt eine eigene `compose.yaml` an und überschreibt Werte in `.env`. Falls schon passiert: `compose.yaml` löschen und `.env` neu aus `.env.sail.example` anlegen (`APP_KEY` vorher sichern).
 
 ## Lokale Entwicklung ohne Sail
 
