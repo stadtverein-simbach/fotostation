@@ -61,9 +61,13 @@ class PhotoStorage
             'ContentType' => $contentType,
         ]);
 
-        $headers = [];
+        // Content-Type immer mitgeben: Das AWS-SDK signiert ihn bei
+        // vorsignierten PUTs nicht und liefert dann nur den Host-Header.
+        // Ohne diesen Eintrag würde aus dem leeren Array in JSON "[]"
+        // statt "{}", und der Worker lehnt die Anfrage ab (422).
+        $headers = ['Content-Type' => $contentType];
         foreach ($target['headers'] as $name => $values) {
-            if (strtolower($name) === 'host') {
+            if (in_array(strtolower($name), ['host', 'content-type'], true)) {
                 continue;
             }
             $headers[$name] = is_array($values) ? implode(', ', $values) : (string) $values;
