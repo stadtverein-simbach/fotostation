@@ -23,7 +23,7 @@
             <li>Zeitpunkt und Version deiner Zustimmung zu den Nutzungsbedingungen.</li>
             <li>Einen Hashwert deiner IP-Adresse zum Schutz vor Missbrauch. Die IP-Adresse selbst speichern wir nicht. Der Hashwert wird nach höchstens 72 Stunden gelöscht.</li>
         </ul>
-        <p>Rechtsgrundlagen: Art. 6 Abs. 1 lit. a und b DSGVO (Einwilligung und Nutzungsbedingungen) für das Foto, Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an Missbrauchsschutz) für den IP-Hashwert, die Spamprüfung und die übernommenen Kameraangaben.</p>
+        <p>Rechtsgrundlagen: Art. 6 Abs. 1 lit. a und b DSGVO (Einwilligung und Nutzungsbedingungen) für das Foto (zum Aufbewahren des Originals siehe „Speicherdauer“), Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an Missbrauchsschutz) für den IP-Hashwert, die Spamprüfung und die übernommenen Kameraangaben.</p>
 
         <h2 class="text-lg font-semibold">Spamschutz</h2>
         <p>Zum Schutz vor automatisierten Uploads nutzen wir ALTCHA. Dabei löst dein Browser eine kleine Rechenaufgabe, die wir auf unserem eigenen Server prüfen. Es werden keine Daten an Dritte übermittelt, kein Cookie gesetzt und keine personenbezogenen Daten gespeichert.</p>
@@ -38,7 +38,11 @@
         <h2 class="text-lg font-semibold">Speicherdauer</h2>
         <p>Abgelehnte Fotos löschen wir sofort, automatisch aussortierte nach spätestens 7 Tagen. Veröffentlichte Fotos bleiben für die Dauer des Projekts oder bis zu einer berechtigten Löschanfrage gespeichert.
             Das Originalfoto in voller Qualität (Bilddaten unverändert, aber ohne Metadaten und ohne Verpixelung) bewahren wir in einem nicht öffentlichen Speicher auf, solange das Foto bei uns gespeichert ist. Es wird zusammen mit dem Foto gelöscht. Öffentlich ist nur die bearbeitete Fassung.
-            {{-- TODO: Zweck (z. B. spätere Neubearbeitung) und Rechtsgrundlage für das Aufbewahren der Originale ergänzen und prüfen lassen. --}}
+        </p>
+        <p>
+            Zweck: Wir brauchen das Original, um das Foto später neu bearbeiten zu können, ohne an Qualität zu verlieren, zum Beispiel wenn sich Ausrichtung, Verpixelung oder Zeitraffer technisch verbessern lassen oder eine Bilderreihe neu erstellt wird. Dabei verpixeln wir Personen in jeder neu veröffentlichten Fassung wieder. Zugriff auf die Originale haben nur die für die Moderation zuständigen Personen des Vereins.
+            Rechtsgrundlage ist für die Person, die das Foto hochlädt, ihre Zustimmung beim Hochladen (Art. 6 Abs. 1 lit. a und b DSGVO), für weitere auf dem Foto erkennbare Personen unser berechtigtes Interesse an einer dauerhaft gleichbleibenden Qualität der Bilderreihe (Art. 6 Abs. 1 lit. f DSGVO). Du kannst jederzeit verlangen, dass ein Foto samt Original gelöscht wird, auch wenn du nur darauf zu sehen bist.
+            {{-- TODO: vor dem Start prüfen lassen (Datenschutzbeauftragte/r bzw. fachkundige Person); Zustimmungstext um das Aufbewahren des Originals ergänzen. --}}
         </p>
 
         <h2 class="text-lg font-semibold">Cookies</h2>
