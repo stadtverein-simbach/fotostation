@@ -80,10 +80,18 @@ cp .env.sail.example .env
 ./vendor/bin/sail up -d --build
 ./vendor/bin/sail artisan key:generate
 ./vendor/bin/sail artisan migrate
-./vendor/bin/sail artisan fotostation:create-admin du@example.de "Dein Name"
+./vendor/bin/sail artisan db:seed            # Testzugänge und Teststation (siehe unten)
 ./vendor/bin/sail npm install
 ./vendor/bin/sail npm run build    # oder: sail npm run dev
 ```
+
+Testdaten aus `db:seed` (nur außerhalb der Produktion, mehrfach ausführbar):
+
+| | |
+| --- | --- |
+| Admin | `admin@example` / `testtesttest` |
+| Moderation | `moderator@example` / `testtesttest` |
+| Station | Teststation-01 unter `/s/teststation-01` (48.268725, 13.021924). Vor dem ersten Upload im Admin ein Referenzbild hochladen. |
 
 Tipp: `alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'`.
 
