@@ -42,7 +42,7 @@
         <p>
             Zweck: Wir brauchen das Original, um das Foto später neu bearbeiten zu können, ohne an Qualität zu verlieren, zum Beispiel wenn sich Ausrichtung, Verpixelung oder Zeitraffer technisch verbessern lassen oder eine Bilderreihe neu erstellt wird. Dabei verpixeln wir Personen in jeder neu veröffentlichten Fassung wieder. Zugriff auf die Originale haben nur die für die Moderation zuständigen Personen des Vereins.
             Rechtsgrundlage ist für die Person, die das Foto hochlädt, ihre Zustimmung beim Hochladen (Art. 6 Abs. 1 lit. a und b DSGVO), für weitere auf dem Foto erkennbare Personen unser berechtigtes Interesse an einer dauerhaft gleichbleibenden Qualität der Bilderreihe (Art. 6 Abs. 1 lit. f DSGVO). Du kannst jederzeit verlangen, dass ein Foto samt Original gelöscht wird, auch wenn du nur darauf zu sehen bist.
-            {{-- TODO: vor dem Start prüfen lassen (Datenschutzbeauftragte/r bzw. fachkundige Person); Zustimmungstext um das Aufbewahren des Originals ergänzen. --}}
+            {{-- TODO: vor dem Start prüfen lassen (Datenschutzbeauftragte/r bzw. fachkundige Person). --}}
         </p>
 
         <h2 class="text-lg font-semibold">Cookies</h2>

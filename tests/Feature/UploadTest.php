@@ -7,6 +7,7 @@ use App\Jobs\AlignImage;
 use App\Jobs\DetectFaces;
 use App\Jobs\MarkForReview;
 use App\Jobs\MatchReference;
+use App\Models\ConsentVersion;
 use App\Models\Station;
 use App\Models\Submission;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -52,6 +53,17 @@ class UploadTest extends TestCase
             ->assertOk()
             ->assertSee('Stadtplatz')
             ->assertSee('Foto hochladen');
+    }
+
+    public function test_current_consent_mentions_kept_original(): void
+    {
+        $station = Station::factory()->create();
+
+        $this->assertSame('2026-11-2', ConsentVersion::current()->version);
+
+        $this->get("/s/{$station->slug}")
+            ->assertOk()
+            ->assertSee('bewahrt das Originalfoto ohne Metadaten nicht öffentlich auf');
     }
 
     public function test_inactive_station_is_not_found(): void
