@@ -57,6 +57,7 @@ Diese Anwendung wurde in einer Umgebung ohne Zugriff auf Packagist geschrieben. 
 | `s3-setup` | legt die Buckets an und macht `photos-public` öffentlich lesbar, beendet sich danach | |
 | `cv-worker` | Bildverarbeitung aus `cv-worker/` | http://localhost:8001/health |
 | `mailpit` | fängt alle Mails ab | http://localhost:8025 |
+| `adminer` | Datenbank-Oberfläche (System „PostgreSQL“, Server `pgsql`, Benutzer `fotostation`, Passwort `secret`, Datenbank `fotostation`) | http://localhost:8080 |
 
 RustFS statt MinIO: Die Images `minio/minio` und `minio/mc` gibt es auf Docker Hub nicht mehr. Laravel Sail nutzt inzwischen ebenfalls RustFS.
 
