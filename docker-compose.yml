@@ -112,6 +112,9 @@ services:
             RUSTFS_ACCESS_KEY: '${PHOTOS_KEY:-fotostation}'
             RUSTFS_SECRET_KEY: '${PHOTOS_SECRET:-fotostation-secret}'
             RUSTFS_LOG_LEVEL: 'info'
+            # Filament (FilePond) lädt vorhandene Dateien per fetch() aus dem Bucket
+            # und braucht dafür CORS. Erlaubt ist nur die eigene App-Adresse.
+            RUSTFS_CORS_ALLOWED_ORIGINS: '${APP_URL:-http://localhost}'
         volumes:
             - 'sail-rustfs:/data'
         networks:
