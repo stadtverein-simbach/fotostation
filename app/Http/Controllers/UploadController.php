@@ -71,17 +71,20 @@ class UploadController extends Controller
             'phash' => $image->phash,
         ]);
         $submission->id = $submission->newUniqueId();
+        $submission->source_path = $submission->pathFor('source', $image->sourceExtension);
         $submission->original_path = $submission->pathFor('original');
         $submission->review_thumb_path = $submission->pathFor('review_thumb');
 
-        // Nur die neu kodierte Fassung ohne Metadaten wird gespeichert.
+        // Gespeichert werden nur Fassungen ohne Metadaten: das Original
+        // (Bilddaten unverändert) und die neu kodierte Arbeitsfassung.
+        $storage->putPrivate($submission->source_path, $image->source, $image->sourceMime);
         $storage->putPrivate($submission->original_path, $image->jpeg, 'image/jpeg');
         $storage->putPrivate($submission->review_thumb_path, $image->thumbWebp, 'image/webp');
 
         try {
             DB::transaction(fn () => $submission->save());
         } catch (Throwable $e) {
-            $storage->private()->delete([$submission->original_path, $submission->review_thumb_path]);
+            $storage->private()->delete([$submission->source_path, $submission->original_path, $submission->review_thumb_path]);
 
             throw $e;
         }

@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
 #[Fillable([
-    'station_id', 'status', 'original_path', 'review_thumb_path', 'aligned_path',
+    'station_id', 'status', 'source_path', 'original_path', 'review_thumb_path', 'aligned_path',
     'public_path', 'thumb_path', 'taken_at', 'width', 'height', 'exif', 'focal_length_35mm', 'gps_distance', 'display_name',
     'consent_version_id', 'consent_at', 'ip_hash', 'sha256', 'phash',
     'match_inliers', 'match_score', 'homography', 'coverage', 'face_boxes', 'manual_boxes',
@@ -124,11 +124,12 @@ class Submission extends Model
     |--------------------------------------------------------------------------
     */
 
-    public function pathFor(string $kind): string
+    public function pathFor(string $kind, string $extension = 'jpg'): string
     {
         $station = $this->station_id;
 
         return match ($kind) {
+            'source' => "sources/{$station}/{$this->id}.{$extension}",
             'original' => "originals/{$station}/{$this->id}.jpg",
             'review_thumb' => "review-thumbs/{$station}/{$this->id}.webp",
             'aligned' => "aligned/{$station}/{$this->id}.jpg",
@@ -152,17 +153,20 @@ class Submission extends Model
     }
 
     /**
-     * Löscht die privaten Arbeitsdateien (Original, Vorschau, ausgerichtet).
+     * Löscht alle privaten Dateien (Original, Arbeitsfassung, Vorschau,
+     * ausgerichtet). Nur zusammen mit der Einreichung (Ablehnung, Entfernen,
+     * Löschfristen).
      */
     public function deletePrivateFiles(): void
     {
-        $paths = array_filter([$this->original_path, $this->review_thumb_path, $this->aligned_path]);
+        $paths = array_filter([$this->source_path, $this->original_path, $this->review_thumb_path, $this->aligned_path]);
 
         if ($paths !== []) {
             Storage::disk(config('fotostation.disks.private'))->delete($paths);
         }
 
         $this->forceFill([
+            'source_path' => null,
             'original_path' => null,
             'review_thumb_path' => null,
             'aligned_path' => null,
@@ -170,17 +174,12 @@ class Submission extends Model
     }
 
     /**
-     * Nach der Veröffentlichung: Arbeitsdateien löschen, das Original je nach
-     * Einstellung (fotostation.keep_originals) behalten.
+     * Nach der Veröffentlichung: Vorschau und ausgerichtete Fassung löschen.
+     * Das Original (source_path) und die Arbeitsfassung (original_path)
+     * bleiben erhalten, solange die Einreichung existiert.
      */
     public function deleteWorkingFiles(): void
     {
-        if (! config('fotostation.keep_originals')) {
-            $this->deletePrivateFiles();
-
-            return;
-        }
-
         $paths = array_filter([$this->review_thumb_path, $this->aligned_path]);
 
         if ($paths !== []) {

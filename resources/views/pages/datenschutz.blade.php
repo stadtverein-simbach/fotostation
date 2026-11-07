@@ -13,7 +13,7 @@
 
         <h2 class="text-lg font-semibold">Was wir beim Hochladen verarbeiten</h2>
         <ul class="list-disc pl-5">
-            <li>Das Foto. Vor dem Speichern entfernen wir alle Metadaten aus der Bilddatei. Einige davon übernehmen wir vorher getrennt in unsere Datenbank:
+            <li>Das Foto. Vor dem Speichern entfernen wir alle Metadaten aus der Bilddatei, die Bilddaten selbst bleiben unverändert. Einige davon übernehmen wir vorher getrennt in unsere Datenbank:
                 <ul class="list-[circle] pl-5">
                     <li>das Aufnahmedatum, um die Bilderreihe zu sortieren,</li>
                     <li>Hersteller und Modell des Geräts sowie Kameraeinstellungen (Brennweite, Zoom, Belichtung, Blitz) und die Bearbeitungssoftware, um bei der Prüfung zu erkennen, warum ein Foto nicht zum Rahmen passt oder ob es nachträglich bearbeitet wurde.</li>
@@ -36,12 +36,10 @@
         </ul>
 
         <h2 class="text-lg font-semibold">Speicherdauer</h2>
-        <p>Abgelehnte Fotos löschen wir sofort, automatisch aussortierte nach spätestens 7 Tagen. Veröffentlichte Fotos bleiben für die Dauer des Projekts oder bis zu einer berechtigten Löschanfrage gespeichert. @if (config('fotostation.keep_originals'))
-            Die unbearbeitete Fassung (ohne Metadaten in der Datei, aber ohne Verpixelung) bewahren wir nach der Veröffentlichung in einem nicht öffentlichen Speicher auf. Sie wird zusammen mit dem veröffentlichten Foto gelöscht. Öffentlich ist nur die bearbeitete Fassung.
+        <p>Abgelehnte Fotos löschen wir sofort, automatisch aussortierte nach spätestens 7 Tagen. Veröffentlichte Fotos bleiben für die Dauer des Projekts oder bis zu einer berechtigten Löschanfrage gespeichert.
+            Das Originalfoto in voller Qualität (Bilddaten unverändert, aber ohne Metadaten und ohne Verpixelung) bewahren wir in einem nicht öffentlichen Speicher auf, solange das Foto bei uns gespeichert ist. Es wird zusammen mit dem Foto gelöscht. Öffentlich ist nur die bearbeitete Fassung.
             {{-- TODO: Zweck (z. B. spätere Neubearbeitung) und Rechtsgrundlage für das Aufbewahren der Originale ergänzen und prüfen lassen. --}}
-        @else
-            Die Originale löschen wir nach der Veröffentlichung, öffentlich bleibt nur die bearbeitete Fassung.
-        @endif</p>
+        </p>
 
         <h2 class="text-lg font-semibold">Cookies</h2>
         <p>Wir verwenden nur technisch notwendige Cookies (Sitzung, Schutz vor Formularmissbrauch).</p>

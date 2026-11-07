@@ -79,15 +79,6 @@ return [
     ],
 
     /*
-    | Originale nach der Veröffentlichung im privaten Bucket behalten
-    | (neu kodiert, ohne Metadaten, aber unverpixelt). Gelöscht werden sie
-    | weiterhin bei Ablehnung, Entfernung und über die Löschfristen. Die
-    | Datenschutzerklärung richtet sich nach diesem Wert.
-    */
-
-    'keep_originals' => (bool) env('FOTOSTATION_KEEP_ORIGINALS', true),
-
-    /*
     |--------------------------------------------------------------------------
     | Ausrichtung
     |--------------------------------------------------------------------------

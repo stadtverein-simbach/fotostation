@@ -81,6 +81,8 @@ class UploadTest extends TestCase
         $this->assertNotSame('127.0.0.1', $submission->ip_hash);
 
         Storage::disk('photos-private')->assertExists($submission->original_path);
+        $this->assertSame($submission->pathFor('source'), $submission->source_path);
+        Storage::disk('photos-private')->assertExists($submission->source_path);
         Storage::disk('photos-private')->assertExists($submission->review_thumb_path);
 
         Bus::assertChained([MatchReference::class, AlignImage::class, DetectFaces::class, MarkForReview::class]);
@@ -120,6 +122,11 @@ class UploadTest extends TestCase
         $this->assertSame('main', $submission->lensType());
         $this->assertSame(60, $submission->gps_distance);
         $this->assertTrue($submission->takenNearStation());
+
+        // Auch das gespeicherte Original enthält keine Metadaten.
+        $source = Storage::disk('photos-private')->get($submission->source_path);
+        $this->assertStringNotContainsString('SERIAL', $source);
+        $this->assertStringNotContainsString('iPhone', $source);
 
         $row = json_encode(DB::table('submissions')->first());
         $this->assertStringNotContainsString('SERIAL', $row);

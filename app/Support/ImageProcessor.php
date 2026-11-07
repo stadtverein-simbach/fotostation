@@ -15,7 +15,10 @@ use RuntimeException;
  *   OffsetTimeOriginal, falls vorhanden) und einige Kameraangaben (ExifData),
  * - dreht das Bild gemäß EXIF-Orientation,
  * - verkleinert auf eine maximale Kantenlänge,
- * - kodiert neu als JPEG (dabei gehen alle Metadaten inkl. GPS verloren),
+ * - kodiert neu als JPEG (dabei gehen alle Metadaten inkl. GPS verloren);
+ *   diese Fassung ist die Arbeitsgrundlage für Abgleich und Ausrichtung,
+ * - bewahrt daneben die hochgeladene Datei unverändert, nur ohne Metadaten
+ *   (MetadataStripper, verlustfrei),
  * - erzeugt eine kleine WebP-Vorschau für die Moderation,
  * - berechnet SHA-256 und einen Perceptual Hash (dHash) gegen Duplikate.
  *
@@ -41,13 +44,15 @@ class ImageProcessor
 
         $exif = $info[2] === IMAGETYPE_JPEG ? (@exif_read_data($path) ?: []) : [];
 
-        $image = @imagecreatefromstring((string) file_get_contents($path));
+        $bytes = (string) file_get_contents($path);
+        $image = @imagecreatefromstring($bytes);
 
         if (! $image instanceof GdImage) {
             throw new UnsupportedImageException('Bild konnte nicht gelesen werden.');
         }
 
-        $image = $this->applyOrientation($image, (int) ($exif['Orientation'] ?? 1));
+        $orientation = (int) ($exif['Orientation'] ?? 1);
+        $image = $this->applyOrientation($image, $orientation);
         $image = $this->limitSize($image);
 
         $width = imagesx($image);
@@ -58,6 +63,7 @@ class ImageProcessor
         }
 
         $jpeg = $this->encodeJpeg($image);
+        [$source, $sourceType] = $this->source($bytes, $info, $orientation, $jpeg);
 
         return new ProcessedImage(
             jpeg: $jpeg,
@@ -68,7 +74,37 @@ class ImageProcessor
             phash: $this->dHash($image),
             takenAt: $this->takenAt($exif),
             exif: ExifData::fromArray($exif),
+            source: $source,
+            sourceExtension: match ($sourceType) {
+                IMAGETYPE_PNG => 'png',
+                IMAGETYPE_WEBP => 'webp',
+                default => 'jpg',
+            },
+            sourceMime: image_type_to_mime_type($sourceType),
         );
+    }
+
+    /**
+     * Unverändertes Original ohne Metadaten. Lässt sich die Datei nicht
+     * verlustfrei bereinigen (ungewöhnlicher Aufbau), dient ersatzweise die
+     * neu kodierte Fassung, damit nie Metadaten gespeichert werden.
+     *
+     * @return array{0: string, 1: int}
+     */
+    private function source(string $bytes, array $info, int $orientation, string $fallbackJpeg): array
+    {
+        try {
+            $stripped = (new MetadataStripper)->strip($bytes, $info[2], $orientation);
+            $check = @getimagesizefromstring($stripped);
+
+            if ($check !== false && $check[0] === $info[0] && $check[1] === $info[1] && $check[2] === $info[2]) {
+                return [$stripped, $info[2]];
+            }
+        } catch (RuntimeException) {
+            // Ersatzweise neu kodiert, siehe oben.
+        }
+
+        return [$fallbackJpeg, IMAGETYPE_JPEG];
     }
 
     /**

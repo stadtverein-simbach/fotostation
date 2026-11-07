@@ -147,8 +147,9 @@ class SubmissionActions
             ->label('Original')
             ->icon('heroicon-o-photo')
             ->color('gray')
-            ->visible(fn (Submission $record): bool => filled($record->original_path))
-            ->url(fn (Submission $record): string => app(PhotoStorage::class)->readUrl($record->original_path), shouldOpenInNewTab: true);
+            // Ältere Einreichungen haben nur die neu kodierte Arbeitsfassung.
+            ->visible(fn (Submission $record): bool => filled($record->source_path ?? $record->original_path))
+            ->url(fn (Submission $record): string => app(PhotoStorage::class)->readUrl($record->source_path ?? $record->original_path), shouldOpenInNewTab: true);
     }
 
     /**

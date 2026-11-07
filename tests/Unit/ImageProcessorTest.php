@@ -34,6 +34,37 @@ class ImageProcessorTest extends TestCase
         $this->assertSame(16, strlen($result->phash));
     }
 
+    public function test_source_keeps_full_resolution_without_metadata(): void
+    {
+        $path = ExifJpeg::file(
+            imagecreatetruecolor(4000, 3000),
+            ifd0: [0x0110 => ['ascii', 'Pixel 8'], 0x0112 => ['short', 6]],
+            gps: [0x0001 => ['ascii', 'N'], 0x0002 => ['rational', [[48, 1], [16, 1], [12, 10]]]],
+        );
+
+        $result = (new ImageProcessor(maxEdge: 3000))->process($path);
+
+        // Arbeitsfassung gedreht und verkleinert, Original unverändert groß.
+        $this->assertSame([2250, 3000], [$result->width, $result->height]);
+        $this->assertSame([4000, 3000], array_slice(getimagesizefromstring($result->source), 0, 2));
+        $this->assertSame(['jpg', 'image/jpeg'], [$result->sourceExtension, $result->sourceMime]);
+        $this->assertStringNotContainsString('Pixel 8', $result->source);
+
+        $original = (string) file_get_contents($path);
+        $this->assertSame(substr($original, strpos($original, "\xFF\xDB")), substr($result->source, strpos($result->source, "\xFF\xDB")));
+    }
+
+    public function test_png_source_stays_png(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'png');
+        imagepng(imagecreatetruecolor(1200, 1000), $path);
+
+        $result = (new ImageProcessor)->process($path);
+
+        $this->assertSame(file_get_contents($path), $result->source);
+        $this->assertSame(['png', 'image/png'], [$result->sourceExtension, $result->sourceMime]);
+    }
+
     public function test_too_small_photos_are_rejected(): void
     {
         $this->expectException(UnsupportedImageException::class);
