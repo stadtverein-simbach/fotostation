@@ -68,7 +68,7 @@ class PipelineTest extends TestCase
     public function test_align_and_faces_store_results(): void
     {
         Http::fake([
-            'worker.test/align' => Http::response(['width' => 1600, 'height' => 1200]),
+            'worker.test/align' => Http::response(['width' => 1600, 'height' => 1200, 'coverage' => 0.9312]),
             'worker.test/faces' => Http::response(['boxes' => [['x' => 10, 'y' => 20, 'w' => 30, 'h' => 40, 'score' => 0.9]], 'width' => 1600, 'height' => 1200]),
         ]);
         $submission = Submission::factory()->status(SubmissionStatus::Processing)->create(['homography' => self::IDENTITY]);
@@ -79,9 +79,30 @@ class PipelineTest extends TestCase
         $submission->refresh();
         $this->assertSame($submission->pathFor('aligned'), $submission->aligned_path);
         $this->assertSame([['x' => 10, 'y' => 20, 'w' => 30, 'h' => 40]], $submission->face_boxes);
+        $this->assertEqualsWithDelta(0.9312, $submission->coverage, 0.0001);
+        $this->assertFalse($submission->hasLowCoverage());
+
+        // Sicherheitsrand der Station (Standard 4 %) geht als Anteil an den Worker.
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/align')
+            && abs($request['margin'] - 0.04) < 0.0001);
     }
 
-    public function test_publish_blurs_boxes_and_deletes_private_files(): void
+    public function test_low_coverage_is_flagged_and_skipped_by_bulk_approve(): void
+    {
+        $low = Submission::factory()->status(SubmissionStatus::PendingReview)->create(['coverage' => 0.7]);
+        $good = Submission::factory()->status(SubmissionStatus::PendingReview)->create(['coverage' => 0.97]);
+
+        $this->assertTrue($low->hasLowCoverage());
+        $this->assertFalse($good->hasLowCoverage());
+
+        \Illuminate\Support\Facades\Queue::fake();
+        $this->assertSame(1, SubmissionActions::approveUnproblematic([$low, $good]));
+
+        $this->assertSame(SubmissionStatus::PendingReview, $low->refresh()->status);
+        $this->assertSame(SubmissionStatus::Approved, $good->refresh()->status);
+    }
+
+    public function test_publish_keeps_original_but_deletes_working_files(): void
     {
         Http::fake(['worker.test/blur' => Http::response(['boxes' => 2, 'width' => 1600, 'height' => 1200])]);
 
@@ -98,14 +119,42 @@ class PipelineTest extends TestCase
         $submission->refresh();
         $this->assertSame(SubmissionStatus::Published, $submission->status);
         $this->assertNotNull($submission->public_path);
-        $this->assertNull($submission->original_path);
-        Storage::disk('photos-private')->assertMissing($submission->pathFor('original'));
+        // Original bleibt (fotostation.keep_originals, Standard), Arbeitsdateien nicht.
+        $this->assertSame($submission->pathFor('original'), $submission->original_path);
+        Storage::disk('photos-private')->assertExists($submission->pathFor('original'));
+        $this->assertNull($submission->aligned_path);
+        Storage::disk('photos-private')->assertMissing($submission->pathFor('aligned'));
         $this->assertTrue($submission->station->refresh()->needs_render);
 
         Http::assertSent(function (Request $request) {
             // Manuelle Box 50 %/50 % von 1600x1200 => 800/600
             return $request['boxes'][1] === ['x' => 800, 'y' => 600, 'w' => 160, 'h' => 60];
         });
+    }
+
+    public function test_publish_deletes_original_when_not_kept(): void
+    {
+        config(['fotostation.keep_originals' => false]);
+        Http::fake(['worker.test/blur' => Http::response(['boxes' => 0, 'width' => 1600, 'height' => 1200])]);
+
+        $submission = Submission::factory()->status(SubmissionStatus::Approved)->create();
+        $submission->forceFill(['aligned_path' => $submission->pathFor('aligned')])->save();
+        Storage::disk('photos-private')->put($submission->original_path, 'x');
+
+        (new PublishSubmission($submission))->handle();
+
+        $this->assertNull($submission->refresh()->original_path);
+        Storage::disk('photos-private')->assertMissing($submission->pathFor('original'));
+    }
+
+    public function test_unpublish_also_deletes_kept_original(): void
+    {
+        $submission = Submission::factory()->status(SubmissionStatus::Published)->create();
+        Storage::disk('photos-private')->put($submission->original_path, 'x');
+
+        SubmissionActions::markRemoved($submission, 'Meldung');
+
+        Storage::disk('photos-private')->assertMissing($submission->pathFor('original'));
     }
 
     public function test_reject_deletes_files_immediately(): void

@@ -40,10 +40,14 @@ class CvWorker
     /**
      * Entzerrt das Bild auf die Referenz und speichert es in der Zielgröße.
      *
+     * Schneidet den Sicherheitsrand ab und ergänzt fehlende Ränder aus dem
+     * Referenzbild; coverage ist der Anteil echter Fotopixel (0..1).
+     *
      * @param  array<int, array<int, float>>  $homography
-     * @return array{width: int, height: int}
+     * @param  float  $margin  Sicherheitsrand je Seite als Anteil (0.04 = 4 %)
+     * @return array{width: int, height: int, coverage: float}
      */
-    public function align(string $imagePath, string $referencePath, array $homography, int $width, int $height, string $targetPath): array
+    public function align(string $imagePath, string $referencePath, array $homography, int $width, int $height, string $targetPath, float $margin = 0.0): array
     {
         return $this->client()->post('/align', [
             'image_url' => $this->storage->readUrl($imagePath),
@@ -51,6 +55,7 @@ class CvWorker
             'homography' => $homography,
             'width' => $width,
             'height' => $height,
+            'margin' => $margin,
             'upload' => $this->storage->uploadTarget($targetPath, 'image/jpeg'),
         ])->throw()->json();
     }

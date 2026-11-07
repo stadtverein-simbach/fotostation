@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Submissions;
 use App\Enums\SubmissionStatus;
 use App\Jobs\PublishSubmission;
 use App\Models\Submission;
+use App\Services\PhotoStorage;
 use App\Support\Pipeline;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -138,6 +139,19 @@ class SubmissionActions
     }
 
     /**
+     * Unbearbeitetes Original (privat, unverpixelt) über eine kurzlebige URL öffnen.
+     */
+    public static function openOriginal(): Action
+    {
+        return Action::make('openOriginal')
+            ->label('Original')
+            ->icon('heroicon-o-photo')
+            ->color('gray')
+            ->visible(fn (Submission $record): bool => filled($record->original_path))
+            ->url(fn (Submission $record): string => app(PhotoStorage::class)->readUrl($record->original_path), shouldOpenInNewTab: true);
+    }
+
+    /**
      * Veröffentlichtes Foto wieder entfernen (z. B. auf eine Meldung hin).
      */
     public static function unpublish(): Action
@@ -169,20 +183,35 @@ class SubmissionActions
             // Ohne Gesichtserkennung wäre „keine Gesichter“ nicht geprüft.
             ->visible(fn (): bool => Pipeline::workerEnabled())
             ->requiresConfirmation()
-            ->modalDescription('Freigegeben werden nur Fotos, die auf Freigabe warten und in denen keine Gesichter erkannt wurden.')
+            ->modalDescription('Freigegeben werden nur Fotos, die auf Freigabe warten, in denen keine Gesichter erkannt wurden und deren Abdeckung ausreicht (sonst einzeln prüfen).')
             ->action(function (Collection $records): void {
-                $count = 0;
-
-                foreach ($records as $record) {
-                    if ($record->status === SubmissionStatus::PendingReview && empty($record->face_boxes)) {
-                        static::markApproved($record, []);
-                        $count++;
-                    }
-                }
+                $count = static::approveUnproblematic($records);
 
                 Notification::make()->title("{$count} Fotos freigegeben")->success()->send();
             })
             ->deselectRecordsAfterCompletion();
+    }
+
+    /**
+     * Sammelfreigabe: nur wartende Fotos ohne erkannte Gesichter und mit
+     * ausreichender Abdeckung. Gibt die Anzahl freigegebener Fotos zurück.
+     *
+     * @param  iterable<Submission>  $records
+     */
+    public static function approveUnproblematic(iterable $records): int
+    {
+        $count = 0;
+
+        foreach ($records as $record) {
+            if ($record->status === SubmissionStatus::PendingReview
+                && empty($record->face_boxes)
+                && ! $record->hasLowCoverage()) {
+                static::markApproved($record, []);
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     public static function markApproved(Submission $record, array $manualBoxes): void
