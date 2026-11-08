@@ -6,8 +6,13 @@
 @section('content')
     <h1 class="text-2xl font-semibold">Danke für dein Foto!</h1>
     <p class="mt-3 text-stone-700">
-        Wir prüfen es in den nächsten Tagen. Nach der Freigabe erscheint es in der Galerie
-        und in der nächsten Bilderreihe, die jede Nacht neu entsteht.
+        Wir prüfen es in den nächsten Tagen.
+        @if (config('fotostation.display.timelapse'))
+            Nach der Freigabe erscheint es in der Galerie
+            und in der nächsten Bilderreihe, die jede Nacht neu entsteht.
+        @else
+            Nach der Freigabe erscheint es in der Galerie.
+        @endif
     </p>
 
     @if ($series?->videoUrl())

@@ -136,6 +136,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Anzeige
+    |--------------------------------------------------------------------------
+    |
+    | Zeitraffer-Video (Galerie- und Danke-Seite) und Vorher/Nachher-Schieber
+    | (Galerieseite) werden nur angezeigt, wenn sie hier eingeschaltet sind.
+    | Der Zeitraffer wird unabhängig davon weiter nächtlich gerendert, damit
+    | er beim Einschalten sofort bereitsteht.
+    |
+    */
+
+    'display' => [
+        'timelapse' => (bool) env('FOTOSTATION_SHOW_TIMELAPSE', false),
+        'comparison' => (bool) env('FOTOSTATION_SHOW_COMPARISON', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Spamschutz: ALTCHA (selbst gehostet, Proof of Work)
     |--------------------------------------------------------------------------
     |
