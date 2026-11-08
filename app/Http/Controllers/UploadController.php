@@ -8,6 +8,7 @@ use App\Models\ConsentVersion;
 use App\Models\Station;
 use App\Models\Submission;
 use App\Services\PhotoStorage;
+use App\Support\ExifData;
 use App\Support\ImageProcessor;
 use App\Support\Pipeline;
 use App\Support\UnsupportedImageException;
@@ -59,6 +60,9 @@ class UploadController extends Controller
             'taken_at' => $image->takenAt ? CarbonImmutable::instance($image->takenAt) : null,
             'width' => $image->width,
             'height' => $image->height,
+            'exif' => $image->exif->toArray() ?: null,
+            'focal_length_35mm' => $image->exif->focalLength35mm,
+            'gps_distance' => $this->gpsDistance($station, $image->exif),
             'display_name' => $request->string('name')->trim()->toString() ?: null,
             'consent_version_id' => $consent->id,
             'consent_at' => now(),
@@ -67,17 +71,20 @@ class UploadController extends Controller
             'phash' => $image->phash,
         ]);
         $submission->id = $submission->newUniqueId();
+        $submission->source_path = $submission->pathFor('source', $image->sourceExtension);
         $submission->original_path = $submission->pathFor('original');
         $submission->review_thumb_path = $submission->pathFor('review_thumb');
 
-        // Nur die neu kodierte Fassung ohne Metadaten wird gespeichert.
+        // Gespeichert werden nur Fassungen ohne Metadaten: das Original
+        // (Bilddaten unverändert) und die neu kodierte Arbeitsfassung.
+        $storage->putPrivate($submission->source_path, $image->source, $image->sourceMime);
         $storage->putPrivate($submission->original_path, $image->jpeg, 'image/jpeg');
         $storage->putPrivate($submission->review_thumb_path, $image->thumbWebp, 'image/webp');
 
         try {
             DB::transaction(fn () => $submission->save());
         } catch (Throwable $e) {
-            $storage->private()->delete([$submission->original_path, $submission->review_thumb_path]);
+            $storage->private()->delete([$submission->source_path, $submission->original_path, $submission->review_thumb_path]);
 
             throw $e;
         }
@@ -98,6 +105,25 @@ class UploadController extends Controller
     private function thanksUrl(Station $station): string
     {
         return URL::temporarySignedRoute('upload.thanks', now()->addMinutes(30), $station);
+    }
+
+    /**
+     * Abstand Foto–Station in Metern, gerundet und gedeckelt. Die Koordinaten
+     * aus dem Foto verlassen diese Methode nicht.
+     */
+    private function gpsDistance(Station $station, ExifData $exif): ?int
+    {
+        if ($station->lat === null || $station->lng === null) {
+            return null;
+        }
+
+        $distance = $exif->distanceTo((float) $station->lat, (float) $station->lng);
+
+        if ($distance === null) {
+            return null;
+        }
+
+        return (int) min(round($distance / 10) * 10, (int) config('fotostation.upload.gps_max_distance'));
     }
 
     private function isDuplicate(Station $station, string $sha256, string $phash, string $ipHash): bool

@@ -52,6 +52,14 @@ return [
         // Nicht global per Hash vergleichen: Fotos derselben Station ähneln sich
         // naturgemäß stark.
         'duplicate_distance' => 3,
+        // Enthält das Foto eine GPS-Position, speichern wir nur den Abstand zur
+        // Station (auf 10 m gerundet, höchstens gps_max_distance), nie die
+        // Koordinaten. Bis gps_near_distance gilt das Foto als „an der Station“.
+        'gps_near_distance' => (int) env('FOTOSTATION_GPS_NEAR_DISTANCE', 200),
+        'gps_max_distance' => 1000,
+        // Brennweite (Kleinbild-Äquivalent) der Hauptkamera üblicher Handys.
+        // Deutlich kürzer = Ultraweitwinkel, deutlich länger = Tele/Zoom.
+        'main_focal_length' => [20, 35],
     ],
 
     /*
@@ -69,15 +77,6 @@ return [
         'auto_rejected_days' => 7,
         'failed_days' => 30,
     ],
-
-    /*
-    | Originale nach der Veröffentlichung im privaten Bucket behalten
-    | (neu kodiert, ohne Metadaten, aber unverpixelt). Gelöscht werden sie
-    | weiterhin bei Ablehnung, Entfernung und über die Löschfristen. Die
-    | Datenschutzerklärung richtet sich nach diesem Wert.
-    */
-
-    'keep_originals' => (bool) env('FOTOSTATION_KEEP_ORIGINALS', true),
 
     /*
     |--------------------------------------------------------------------------

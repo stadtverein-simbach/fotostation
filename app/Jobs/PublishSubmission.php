@@ -11,8 +11,8 @@ use RuntimeException;
 
 /**
  * Nach der Freigabe: Gesichter und von Hand markierte Bereiche verpixeln,
- * öffentliche Fassung und Thumbnail schreiben, Arbeitsdateien löschen
- * (Original je nach fotostation.keep_originals behalten).
+ * öffentliche Fassung und Thumbnail schreiben, Vorschau und ausgerichtete
+ * Fassung löschen (das Original bleibt erhalten).
  *
  * Schlägt der Job fehl, bleibt die Einreichung im Status „Freigegeben“ und
  * kann in der Moderation erneut veröffentlicht werden.
@@ -57,8 +57,8 @@ class PublishSubmission extends SubmissionJob
             'published_at' => now(),
         ]);
 
-        // Arbeitsdateien werden nicht mehr gebraucht (Datenminimierung); das
-        // Original bleibt je nach Einstellung erhalten.
+        // Vorschau und ausgerichtete Fassung werden nicht mehr gebraucht
+        // (Datenminimierung); das Original bleibt erhalten.
         $submission->deleteWorkingFiles();
 
         $station->forceFill(['needs_render' => true])->save();
