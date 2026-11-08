@@ -82,4 +82,12 @@ class StationPageTest extends TestCase
             ->assertSee('Vorher und nachher')
             ->assertDontSee('<video', false);
     }
+
+    public function test_photos_open_in_lightbox(): void
+    {
+        $this->get(route('stations.show', $this->station))
+            ->assertOk()
+            ->assertSee('data-lightbox-dialog', false)
+            ->assertSee('data-lightbox', false);
+    }
 }

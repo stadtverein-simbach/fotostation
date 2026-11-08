@@ -46,7 +46,8 @@
         <ul class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
             @forelse ($photos as $photo)
                 <li class="overflow-hidden rounded-lg border border-stone-200 bg-white">
-                    <a href="{{ $photo->publicUrl() }}" target="_blank">
+                    <a href="{{ $photo->publicUrl() }}" target="_blank" data-lightbox
+                       data-caption="{{ ($photo->taken_at ?? $photo->created_at)->format('d.m.Y') }}@if ($photo->display_name) · {{ $photo->display_name }}@endif">
                         <img src="{{ $photo->thumbUrl() }}" alt="Foto vom {{ ($photo->taken_at ?? $photo->created_at)->format('d.m.Y') }}" loading="lazy" class="aspect-[4/3] w-full object-cover">
                     </a>
                     <div class="flex items-center justify-between px-2 py-1 text-xs text-stone-500">
@@ -61,6 +62,24 @@
 
         <div class="mt-4">{{ $photos->links() }}</div>
     </section>
+
+    {{-- Lightbox für die Fotoübersicht, gesteuert über resources/js/lightbox.js --}}
+    <dialog data-lightbox-dialog aria-label="Fotoansicht"
+            class="m-0 h-full max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-black/90">
+        <div class="flex h-full w-full flex-col items-center justify-center p-4 text-white">
+            <figure class="flex flex-col items-center">
+                <img data-lightbox-image alt="" class="max-h-[calc(100dvh-6rem)] max-w-full object-contain select-none">
+                <figcaption data-lightbox-caption class="mt-3 text-center text-sm text-stone-300"></figcaption>
+            </figure>
+            <p data-lightbox-counter class="mt-1 text-xs text-stone-400"></p>
+        </div>
+        <button type="button" data-lightbox-close aria-label="Schließen"
+                class="absolute top-3 right-3 rounded-full bg-black/50 px-3 py-1 text-2xl text-white hover:bg-black/80">&times;</button>
+        <button type="button" data-lightbox-prev aria-label="Vorheriges Foto"
+                class="absolute top-1/2 left-3 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-3xl text-white hover:bg-black/80">&lsaquo;</button>
+        <button type="button" data-lightbox-next aria-label="Nächstes Foto"
+                class="absolute top-1/2 right-3 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-3xl text-white hover:bg-black/80">&rsaquo;</button>
+    </dialog>
 
     <p class="mt-8 text-sm text-stone-500">
         Einzelfotos: <a class="underline" href="https://creativecommons.org/publicdomain/zero/1.0/deed.de">CC0 1.0</a>.
