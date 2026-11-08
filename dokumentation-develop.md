@@ -403,6 +403,8 @@ Alle Fotostation-Einstellungen stehen in `config/fotostation.php`. Variablen ohn
 | `FOTOSTATION_NIGHTLY_AT` | `03:00` | Uhrzeit aller nächtlichen Aufgaben |
 | `FOTOSTATION_RENDER_FPS` | `4` | Bilder pro Sekunde im Zeitraffer |
 | `FOTOSTATION_RENDER_MAX_FRAMES` ✱ | `1500` | Max. Bilder pro Zeitraffer; darüber wird gleichmäßig ausgedünnt |
+| `FOTOSTATION_SHOW_TIMELAPSE` | `false` | Zeitraffer-Video auf Galerie- und Danke-Seite anzeigen. Gerendert wird auch bei `false`. |
+| `FOTOSTATION_SHOW_COMPARISON` | `false` | Vorher/Nachher-Schieber auf der Galerieseite anzeigen |
 | `FOTOSTATION_KEEP_ORIGINALS` | `true` | Original nach der Veröffentlichung privat behalten (unverpixelt, ohne Metadaten). Bei Ablehnung/Entfernung wird es trotzdem gelöscht. Steuert auch den Text der Datenschutzerklärung. |
 | `FOTOSTATION_MIN_COVERAGE` | `0.85` | Mindestanteil echter Fotopixel nach der Ausrichtung (0–1). Darunter: Markierung in der Moderation, keine Sammelfreigabe. Nur voller Modus. |
 | (nur Config) `retention.ip_hash_hours` | `48` | IP-Hashes löschen nach … Stunden (effektiv max. 72 h, da nur nachts) |
@@ -496,11 +498,13 @@ Schedule::command('fotostation:report-stuck')->dailyAt($at);
 
 ### 6.2 Vorher/Nachher-Vergleich
 
-Auf der Galerieseite, sobald es mindestens zwei veröffentlichte Fotos gibt: ältestes und neuestes Foto übereinander, mit Schieberegler (CSS `clip-path`). Funktioniert in **beiden** Modi, sieht aber nur im vollen Modus wirklich deckungsgleich aus, weil dort alle Bilder auf die Referenz ausgerichtet sind. Benötigt keinen Worker.
+Nur wenn `FOTOSTATION_SHOW_COMPARISON=true` gesetzt ist (Standard: aus). Dann auf der Galerieseite, sobald es mindestens zwei veröffentlichte Fotos gibt: ältestes und neuestes Foto übereinander, mit Schieberegler (CSS `clip-path`). Funktioniert in **beiden** Modi, sieht aber nur im vollen Modus wirklich deckungsgleich aus, weil dort alle Bilder auf die Referenz ausgerichtet sind. Benötigt keinen Worker.
 
 ### 6.3 Zeitraffer
 
 Aus allen veröffentlichten Fotos einer Station entsteht ein MP4-Video, das auf der Galerieseite und auf der Danke-Seite nach dem Upload eingebettet wird (`<video muted loop playsinline>`), mit Zeitraum, Anzahl der Fotos, Namensnennung und Lizenz **CC BY 4.0**.
+
+Angezeigt wird das Video nur, wenn `FOTOSTATION_SHOW_TIMELAPSE=true` gesetzt ist (Standard: aus). Gerendert wird es unabhängig davon, damit es beim Einschalten sofort bereitsteht.
 
 **Ablauf** (`App\Jobs\RenderSeries`, aufgerufen von `fotostation:render-changed`):
 

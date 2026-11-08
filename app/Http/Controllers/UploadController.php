@@ -98,7 +98,7 @@ class UploadController extends Controller
     {
         return view('upload.thanks', [
             'station' => $station,
-            'series' => $station->latestSeries,
+            'series' => config('fotostation.display.timelapse') ? $station->latestSeries : null,
         ]);
     }
 
