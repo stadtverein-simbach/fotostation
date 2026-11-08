@@ -25,11 +25,15 @@ Später einschalten: Worker aufsetzen (siehe unten), `CV_WORKER_ENABLED=true`, `
 ## Ablauf
 
 1. `GET /s/{station}`: Upload-Seite (Ziel des QR-Codes)
-2. `POST /s/{station}`: Honeypot, ALTCHA (selbst gehostetes Captcha), Rate-Limit (3 pro Stunde und IP, 500 pro Tag und Station), Validierung. Das Bild wird **synchron neu kodiert**, alle Metadaten entfallen, nur das Aufnahmedatum bleibt. Gespeichert wird erst diese Fassung, zusammen mit SHA-256, Perceptual Hash und einer Vorschau.
+2. `POST /s/{station}`: Honeypot, ALTCHA (selbst gehostetes Captcha), Rate-Limit (3 pro Stunde und IP, 500 pro Tag und Station), Validierung. Zwei Fassungen, beide ohne Metadaten:
+   - **Original** (`source_path`, `sources/…`): die hochgeladene Datei mit Byte für Byte unveränderten Bilddaten (volle Auflösung, keine Neukodierung). `App\Support\MetadataStripper` entfernt verlustfrei EXIF (inkl. GPS), XMP, IPTC, Kommentare, eingebettete Zusatzbilder und angehängte Daten wie Motion-Photo-Videos; erhalten bleiben ICC-Farbprofil und bei JPEG die Ausrichtung. Gelingt das bei einer ungewöhnlich aufgebauten Datei nicht, wird ersatzweise die Arbeitsfassung als Original gespeichert, nie eine Datei mit Metadaten.
+   - **Arbeitsfassung** (`original_path`, `originals/…`): **synchron neu kodiert**, gedreht und auf höchstens 3000 px verkleinert. Grundlage für Abgleich, Ausrichtung, Vorschau, SHA-256 und Perceptual Hash.
+   - Vorher übernimmt `App\Support\ExifData` eine feste Auswahl an EXIF-Angaben in die Datenbank: Aufnahmedatum (mit Zeitzone aus `OffsetTimeOriginal`, falls vorhanden) in `taken_at`; Hersteller, Modell, Software, Brennweite, Digitalzoom, Belichtung, Blende, ISO, Blitz und „nach der Aufnahme geändert“ in `exif` (JSON); die Kleinbild-Brennweite zusätzlich in `focal_length_35mm` zum Filtern. Seriennummern, Namen und Ähnliches werden nie gelesen.
+   - GPS: Hat die Station Koordinaten und das Foto eine Position, wird nur der Abstand in `gps_distance` gespeichert (auf 10 m gerundet, höchstens 1000 m), nie die Koordinaten. Ab `FOTOSTATION_GPS_NEAR_DISTANCE` (Standard 200 m) ist das Foto in der Moderation markiert. Viele Browser entfernen GPS und oft auch weitere EXIF-Daten schon beim Hochladen, die Felder sind daher häufig leer.
 3. Queue `uploads` (konfigurierbar über `FOTOSTATION_QUEUE`), mit Worker: `MatchReference` → `AlignImage` → `DetectFaces` → `MarkForReview`. Jeder Job bleibt unter 90 Sekunden (Grenze der Flex-Worker bei Laravel Cloud Managed Queues).
    - Passt das Foto nicht zum Referenzbild der Station, wird es `auto_rejected` (Stichprobe im Admin, Löschung nach 7 Tagen).
 4. Moderation in Filament (`/admin`): Freigeben (mit optionalen zusätzlichen Verpixel-Bereichen) oder Ablehnen (Dateien werden sofort gelöscht).
-5. `PublishSubmission`: Gesichter und markierte Bereiche verpixeln, öffentliche Fassung und Thumbnail schreiben, Arbeitsdateien löschen. Das Original (neu kodiert, ohne Metadaten) bleibt mit `FOTOSTATION_KEEP_ORIGINALS=true` (Standard) privat erhalten und ist in der Moderation über „Original“ abrufbar. Gelöscht wird es bei Ablehnung oder Entfernung des Fotos. Die Datenschutzerklärung passt sich der Einstellung an.
+5. `PublishSubmission`: Gesichter und markierte Bereiche verpixeln, öffentliche Fassung und Thumbnail schreiben, Arbeitsdateien löschen. Das Original bleibt immer privat erhalten, solange es die Einreichung gibt, und ist in der Moderation über „Original“ abrufbar. Gelöscht wird es nur zusammen mit der Einreichung (Ablehnung, Entfernung, Löschfristen).
 
 Zur Ausrichtung (`AlignImage`): Der Worker schneidet an jeder Seite den Sicherheitsrand der Station ab (Standard 4 %). Was das Foto danach immer noch nicht abdeckt, ergänzt er weich überblendet aus dem Referenzbild, statt Randpixel zu Streifen zu ziehen. Der Anteil echter Fotopixel wird als „Abdeckung“ gespeichert. Liegt er unter `FOTOSTATION_MIN_COVERAGE` (Standard 85 %), ist das Foto in der Moderation markiert und wird von der Sammelfreigabe übersprungen.
 6. Nachts um 3:00 Uhr, alles gebündelt (die Datenbank wacht nur einmal auf): Zeitraffer neu rendern (nur bei Änderungen, **synchron im Befehl**, nicht in der Queue), Löschfristen (`model:prune`), IP-Hashes löschen, Fehler melden.
@@ -170,7 +174,7 @@ Die ausführliche Schritt-für-Schritt-Anleitung (inkl. IONOS-VPS) liegt als Dok
 
 Grenzen der Managed Queues, auf die der Code ausgelegt ist: eine Queue pro Umgebung im Starter-Plan, Jobs höchstens 90 Sekunden auf Flex, Verzögerungen höchstens 15 Minuten. `php artisan queue:failed` funktioniert damit nicht; fehlgeschlagene Jobs stehen unter **Monitoring › Queues**.
 
-Hinweis zu Filament-Uploads (Referenzbild): Livewire legt Uploads zunächst lokal ab. Bei mehreren App-Instanzen in `config/livewire.php` den `temporary_file_upload.disk` auf `photos-private` stellen.
+Hinweis zu Filament-Uploads (Referenzbild): Livewire legt Uploads zunächst auf der lokalen Disk ab (`config/livewire.php`, unabhängig von `FILESYSTEM_DISK`), Filament verschiebt sie beim Speichern in `photos-private`. Bei mehreren App-Instanzen `LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK` auf eine gemeinsame Disk stellen; bei einem Bucket lädt der Browser dann direkt dorthin hoch, der Bucket muss also CORS für `PUT` von der App-Domain erlauben.
 
 ## cv-worker auf dem VPS
 

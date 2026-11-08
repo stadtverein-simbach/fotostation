@@ -14,5 +14,10 @@ final readonly class ProcessedImage
         public string $sha256,
         public string $phash,
         public ?DateTimeImmutable $takenAt,
+        public ExifData $exif = new ExifData,
+        // Hochgeladene Datei, Bilddaten unverändert, ohne Metadaten.
+        public string $source = '',
+        public string $sourceExtension = 'jpg',
+        public string $sourceMime = 'image/jpeg',
     ) {}
 }

@@ -37,6 +37,7 @@ class SubmissionFactory extends Factory
     {
         return $this->afterMaking(function (Submission $submission): void {
             $submission->id ??= $submission->newUniqueId();
+            $submission->source_path ??= $submission->pathFor('source');
             $submission->original_path ??= $submission->pathFor('original');
         });
     }

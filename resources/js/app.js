@@ -1,7 +1,10 @@
 import 'altcha';
 import 'altcha/i18n/de';
+import { initLightbox } from './lightbox';
 
 document.addEventListener('DOMContentLoaded', () => {
+    initLightbox();
+
     // Upload-Formular: Vorschau und Schutz vor Doppelklick.
     const form = document.querySelector('[data-upload-form]');
     if (!form) {

@@ -35,13 +35,16 @@ class StationController extends Controller
         abort_unless($station->is_active, 404);
 
         $photos = $station->publishedSubmissions()->paginate(48);
+        $showComparison = config('fotostation.display.comparison');
 
         return view('stations.show', [
             'station' => $station,
-            'series' => $station->latestSeries,
+            'series' => config('fotostation.display.timelapse') ? $station->latestSeries : null,
             'photos' => $photos,
-            'first' => $station->publishedSubmissions()->first(),
-            'last' => $station->publishedSubmissions()->reorder()->orderByRaw('coalesce(taken_at, created_at) desc')->first(),
+            'first' => $showComparison ? $station->publishedSubmissions()->first() : null,
+            'last' => $showComparison
+                ? $station->publishedSubmissions()->reorder()->orderByRaw('coalesce(taken_at, created_at) desc')->first()
+                : null,
         ]);
     }
 }

@@ -88,6 +88,47 @@ class SubmissionResource extends Resource
                     TextEntry::make('reviewer.name')->label('Geprüft von')->placeholder('–'),
                     TextEntry::make('error')->label('Fehler')->placeholder('–')->columnSpanFull(),
                 ]),
+            Section::make('Kamera (EXIF)')
+                ->description('Aus den Bilddaten übernommen, soweit vorhanden. Viele Browser entfernen sie beim Hochladen.')
+                ->columns(3)
+                ->collapsible()
+                ->schema([
+                    TextEntry::make('exif.model')->label('Gerät')
+                        ->state(fn (Submission $record): ?string => static::device($record->exif))
+                        ->placeholder('unbekannt'),
+                    TextEntry::make('focal_length_35mm')->label('Brennweite (KB)')
+                        ->formatStateUsing(fn (?int $state, Submission $record): string => $state === null ? '–' : $state.' mm · '.static::lensLabel($record->lensType()))
+                        ->color(fn (Submission $record): ?string => in_array($record->lensType(), ['ultrawide', 'tele'], true) ? 'warning' : null)
+                        ->helperText(fn (Submission $record): ?string => in_array($record->lensType(), ['ultrawide', 'tele'], true)
+                            ? 'Nicht mit der Hauptkamera aufgenommen, das erklärt oft einen schlechten Bildabgleich.'
+                            : null)
+                        ->placeholder('–'),
+                    TextEntry::make('exif.digital_zoom')->label('Digitalzoom')
+                        ->formatStateUsing(fn (?float $state): string => $state === null ? '–' : number_format($state, 1, ',', '.').'×')
+                        ->color(fn (?float $state): ?string => $state > 1.05 ? 'warning' : null)
+                        ->placeholder('–'),
+                    TextEntry::make('exif.exposure_time')->label('Belichtung')
+                        ->state(fn (Submission $record): ?string => static::exposure($record->exif))
+                        ->placeholder('–'),
+                    TextEntry::make('exif.flash')->label('Blitz')
+                        ->formatStateUsing(fn (?bool $state): string => match ($state) {
+                            true => 'ausgelöst', false => 'nein', null => '–'
+                        })
+                        ->placeholder('–'),
+                    TextEntry::make('exif.software')->label('Software')
+                        ->color(fn (Submission $record): ?string => ($record->exif['modified_after_capture'] ?? false) ? 'warning' : null)
+                        ->helperText(fn (Submission $record): ?string => ($record->exif['modified_after_capture'] ?? false)
+                            ? 'Nach der Aufnahme geändert, möglicherweise bearbeitet.'
+                            : null)
+                        ->placeholder('–'),
+                    TextEntry::make('gps_distance')->label('Abstand zur Station (GPS)')
+                        ->formatStateUsing(fn (?int $state): string => static::distance($state))
+                        ->color(fn (Submission $record): ?string => $record->takenNearStation() === false ? 'danger' : null)
+                        ->helperText(fn (Submission $record): ?string => $record->takenNearStation() === false
+                            ? 'Laut GPS nicht an der Station aufgenommen.'
+                            : null)
+                        ->placeholder('keine Position im Foto'),
+                ]),
         ]);
     }
 
@@ -113,6 +154,21 @@ class SubmissionResource extends Resource
                     ->icon(fn (Submission $record): ?string => $record->hasLowCoverage() ? 'heroicon-o-exclamation-triangle' : null)
                     ->sortable()
                     ->toggleable(),
+                TextColumn::make('focal_length_35mm')
+                    ->label('Brennweite')
+                    ->formatStateUsing(fn (?int $state): string => $state === null ? '–' : $state.' mm')
+                    ->color(fn (Submission $record): ?string => in_array($record->lensType(), ['ultrawide', 'tele'], true) ? 'warning' : null)
+                    ->tooltip(fn (Submission $record): ?string => $record->lensType() ? static::lensLabel($record->lensType()) : null)
+                    ->placeholder('–')
+                    ->sortable()
+                    ->toggleable(),
+                TextColumn::make('gps_distance')
+                    ->label('GPS')
+                    ->formatStateUsing(fn (?int $state): string => static::distance($state))
+                    ->color(fn (Submission $record): ?string => $record->takenNearStation() === false ? 'danger' : 'success')
+                    ->placeholder('–')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('face_boxes')
                     ->label('Gesichter')
                     ->state(fn (Submission $record): int => count($record->face_boxes ?? [])),
@@ -135,6 +191,60 @@ class SubmissionResource extends Resource
                     SubmissionActions::bulkApprove(),
                 ]),
             ]);
+    }
+
+    private static function device(?array $exif): ?string
+    {
+        $make = $exif['make'] ?? null;
+        $model = $exif['model'] ?? null;
+
+        if ($model === null) {
+            return $make;
+        }
+
+        // Manche Geräte wiederholen den Hersteller im Modell, dann nicht doppelt anzeigen.
+        return $make !== null && ! str_contains(mb_strtolower($model), mb_strtolower($make))
+            ? "{$make} {$model}"
+            : $model;
+    }
+
+    private static function lensLabel(?string $type): string
+    {
+        return match ($type) {
+            'ultrawide' => 'Ultraweitwinkel',
+            'tele' => 'Tele/Zoom',
+            'main' => 'Hauptkamera',
+            default => 'unbekannt',
+        };
+    }
+
+    private static function exposure(?array $exif): ?string
+    {
+        $parts = [];
+
+        if (isset($exif['exposure_time'])) {
+            $time = (float) $exif['exposure_time'];
+            $parts[] = $time >= 1 ? number_format($time, 1, ',', '.').' s' : '1/'.round(1 / $time).' s';
+        }
+        if (isset($exif['f_number'])) {
+            $parts[] = 'f/'.number_format((float) $exif['f_number'], 1, ',', '.');
+        }
+        if (isset($exif['iso'])) {
+            $parts[] = 'ISO '.$exif['iso'];
+        }
+
+        return $parts === [] ? null : implode(' · ', $parts);
+    }
+
+    private static function distance(?int $meters): string
+    {
+        if ($meters === null) {
+            return '–';
+        }
+
+        return $meters >= (int) config('fotostation.upload.gps_max_distance')
+            ? 'über '.number_format($meters / 1000, 0, ',', '.').' km'
+            : 'ca. '.$meters.' m';
     }
 
     private static function percent(?float $value): string

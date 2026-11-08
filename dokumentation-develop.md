@@ -1,12 +1,13 @@
 # SVS Fotostation – Entwicklerdokumentation
 
-> Stand: November 2026 · Bezieht sich auf den Code im Repository `stadtverein-simbach/fotostation`.
+> Stand: 8. November 2026 (Branch `develop`) · Bezieht sich auf den Code im Repository `stadtverein-simbach/fotostation`.
 > Dieses Dokument wird laufend erweitert. Neue Fragen bitte als eigenen Abschnitt am Ende ergänzen (siehe [Offene Fragen / Erweiterungen](#8-offene-fragen--erweiterungen)).
 
 ## Inhalt
 
 1. [Überblick und Architektur](#1-überblick-und-architektur)
 2. [Erfassungsmöglichkeiten der Station und ihre Funktionen](#2-erfassungsmöglichkeiten-der-station-und-ihre-funktionen)
+   - [2.6 Freigabeprozess: Status, Möglichkeiten der Moderation und Übergänge](#26-freigabeprozess-status-möglichkeiten-der-moderation-und-übergänge)
 3. [Ablauf und Absicherung eines Uploads](#3-ablauf-und-absicherung-eines-uploads)
 4. [Optionale Einstellungen (Konfigurationsreferenz)](#4-optionale-einstellungen-konfigurationsreferenz)
 5. [Laravel-Befehle (Artisan)](#5-laravel-befehle-artisan)
@@ -46,7 +47,7 @@ Die Fotostation ist ein fest montierter Rahmen im öffentlichen Raum. Passanten 
 | Admin | Filament 5 unter `/admin` | Stationen, Moderation, Meldungen, Zustimmungstexte, Dashboard |
 | Queue | Laravel Queue (lokal `database`, in Laravel Cloud `cloud`) | Verarbeitungskette pro Einreichung |
 | Scheduler | Laravel Scheduler | Nächtliche Aufgaben (Zeitraffer, Löschfristen) |
-| Speicher | Zwei S3-kompatible Buckets (lokal MinIO) | privat / öffentlich getrennt |
+| Speicher | Zwei S3-kompatible Buckets (lokal RustFS über Sail) | privat / öffentlich getrennt |
 | cv-worker | Python 3.13, FastAPI, OpenCV 5 (SIFT, YuNet), ffmpeg | Bildabgleich, Ausrichtung, Gesichter, Verpixeln, Zeitraffer |
 
 Die Anwendung hat zwei **Betriebsmodi**, gesteuert über `CV_WORKER_ENABLED`:
@@ -55,7 +56,8 @@ Die Anwendung hat zwei **Betriebsmodi**, gesteuert über `CV_WORKER_ENABLED`:
 | --- | --- | --- |
 | Upload, Neu-Kodieren, Duplikate, Rate-Limit | ja | ja |
 | Abgleich mit dem Referenzbild (Spamfilter) | nein – alles geht in die Moderation | ja – passt nicht ⇒ `auto_rejected` |
-| Ausrichtung auf die Referenz | nein – nur mittiger Zuschnitt (GD) | ja – Homographie (OpenCV) |
+| Ausrichtung auf die Referenz | nein – nur mittiger Zuschnitt (GD) | ja – Homographie (OpenCV), Sicherheitsrand, fehlende Ränder aus dem Referenzbild ergänzt |
+| Abdeckung (`coverage`) prüfen | nein (Wert bleibt leer) | ja – geringe Abdeckung wird in der Moderation markiert |
 | Gesichtserkennung + automatisches Verpixeln | nein | ja (YuNet) |
 | Verpixeln von Hand markierter Bereiche | ja (GD) | ja (OpenCV) |
 | Sammelfreigabe „Freigeben (ohne Gesichter)“ | ausgeblendet | ja |
@@ -104,6 +106,7 @@ Nur für Rolle **Admin** sichtbar (`StationResource::canViewAny`). Felder (`app/
 | Referenzbild | `reference_path` | – | Scharfes Foto aus dem Rahmen bei Tageslicht, liegt im **privaten** Bucket unter `references/`. Ohne Referenzbild nimmt die Station keine Uploads an (`Station::isReady()`). Im vollen Modus wird jedes Foto damit abgeglichen und darauf ausgerichtet. |
 | Breite / Höhe der Ausgabe | `output_width`, `output_height` | 1920 × 1440 | Zielformat aller ausgerichteten/zugeschnittenen Bilder und des Zeitraffers. Seitenverhältnis wie das Referenzbild wählen. |
 | Mindest-Inlier | `min_inliers` | 40 | Schwelle für den Bildabgleich (nur voller Modus). Weniger übereinstimmende Merkmale ⇒ `auto_rejected`. Echte Fotos sollten sicher darüber liegen, fremde Bilder liegen in Tests meist unter 15. |
+| Sicherheitsrand (%) | `crop_margin` | 4,0 | 0–20 %, Schritte 0,5. Wird nach dem Ausrichten an **jeder** Seite abgeschnitten, damit kleine Abweichungen im Bildausschnitt nicht auffallen; was danach noch fehlt, ergänzt der Worker aus dem Referenzbild. Gilt nur für neue Uploads und nur im vollen Modus. Zeigen viele Fotos eine geringe Abdeckung, den Rand erhöhen. |
 | (intern) | `needs_render` | `false` | Wird bei Veröffentlichung/Entfernung gesetzt; der nächtliche Befehl rendert dann den Zeitraffer neu. In der Tabelle als „Zeitraffer veraltet“ sichtbar. |
 
 **Aktionen in der Stationstabelle**
@@ -119,22 +122,91 @@ Nur für Rolle **Admin** sichtbar (`StationResource::canViewAny`). Felder (`app/
 | Bereich | Rolle | Inhalt |
 | --- | --- | --- |
 | **Dashboard** | alle | Widget `ModerationStats`: wartet auf Freigabe, Uploads heute, Anteil automatisch abgelehnt (30 Tage), offene Meldungen |
-| **Einreichungen** | Admin + Moderation | Liste (Filter Status/Station, Standard „Wartet auf Freigabe“), Detailansicht mit ausgerichtetem Bild, Gesichtsboxen (rot), manuellen Boxen (blau gestrichelt) und Referenzbild daneben. Navigation zeigt Anzahl offener Freigaben als Badge. Anlegen/Bearbeiten ist gesperrt. |
+| **Einreichungen** | Admin + Moderation | Liste (Filter Status/Station, Standard „Wartet auf Freigabe“) mit Spalten Vorschau, Status, Station, Inlier, **Abdeckung** (rot mit Warnsymbol, wenn zu gering), Gesichter, Aufnahme- und Upload-Zeit. Detailansicht mit ausgerichtetem Bild, Gesichtsboxen (rot), manuellen Boxen (blau gestrichelt) und Referenzbild daneben, dazu Inlier mit Schwelle der Station und Abdeckung mit Hinweistext. Navigation zeigt Anzahl offener Freigaben als Badge. Anlegen/Bearbeiten ist gesperrt. |
 | **Meldungen** | Admin + Moderation | Meldungen nach Art. 16 DSA; Aktionen „Foto ansehen“, „Foto entfernen“, „Zurückweisen“ |
 | **Zustimmungstexte** | nur Admin | Versionierte, **unveränderliche** Texte (Version, Lizenz CC0 1.0, gültig ab, Text). Änderung = neue Version anlegen. Gültig ist die jüngste Version mit `valid_from <= now()`. Ein `updating`-Hook im Modell wirft eine Exception. Die erste Version `2026-11` legt eine Migration an. |
 
-**Rollen** (`App\Enums\UserRole`): `admin` (alles) und `moderator` (Einreichungen, Meldungen, Dashboard). Eine Selbstregistrierung gibt es nicht; Zugänge entstehen nur über `fotostation:create-admin`.
+**Rollen** (`App\Enums\UserRole`): `admin` (alles) und `moderator` (Einreichungen, Meldungen, Dashboard). Eine Selbstregistrierung gibt es nicht; Zugänge entstehen über `fotostation:create-admin` oder – nur außerhalb der Produktion – über `php artisan db:seed` (Testzugänge, siehe [7.3](#73-lokale-entwicklungsumgebung)).
 
 ### 2.5 Moderationsaktionen (`app/Filament/Resources/Submissions/SubmissionActions.php`)
 
-| Aktion | sichtbar bei Status | Wirkung |
-| --- | --- | --- |
-| **Freigeben** | `pending_review` | Optional zusätzliche Verpixel-Bereiche in **Prozent** des Bildes (x/y = linke obere Ecke, b/h). Status ⇒ `approved`, Job `PublishSubmission` wird eingereiht. |
-| **Ablehnen** | `pending_review`, `auto_rejected`, `failed` | Grund aus Liste (Personen erkennbar, Nicht von der Station, Schlechte Qualität, Unangemessen, Duplikat). **Alle Dateien werden sofort gelöscht**, Status ⇒ `rejected`. |
-| **Zur Freigabe holen** | `auto_rejected` mit Homographie, nur voller Modus | Startet die Kette ab `AlignImage` (Stichprobe der automatischen Ablehnungen). |
-| **Erneut verarbeiten** | `failed`, oder `approved` seit > 10 Min. | `failed` ⇒ Kette von vorn; `approved` ⇒ `PublishSubmission` erneut. |
-| **Entfernen** | `published` | Löscht Dateien, Status ⇒ `rejected`, Station ⇒ `needs_render = true`. |
-| **Freigeben (ohne Gesichter)** (Sammelaktion) | nur voller Modus | Gibt nur ausgewählte Fotos frei, die `pending_review` sind **und** keine erkannten Gesichter haben. |
+| Aktion | Wo | sichtbar bei Status | Wirkung |
+| --- | --- | --- | --- |
+| **Ansehen** | Liste | immer | Öffnet die Detailansicht |
+| **Freigeben** | Liste + Detail | `pending_review` | Optional zusätzliche Verpixel-Bereiche in **Prozent** des Bildes (x/y = linke obere Ecke, b/h). Status ⇒ `approved`, Job `PublishSubmission` wird eingereiht. |
+| **Ablehnen** | Liste + Detail | `pending_review`, `auto_rejected`, `failed` | Grund aus Liste (Personen erkennbar, Nicht von der Station, Schlechte Qualität, Unangemessen, Duplikat). **Alle Dateien werden sofort gelöscht** (auch das Original), Status ⇒ `rejected`. |
+| **Zur Freigabe holen** | Detail | `auto_rejected` mit Homographie, nur voller Modus | Status ⇒ `processing`, Kette ab `AlignImage` (Stichprobe der automatischen Ablehnungen). |
+| **Erneut verarbeiten** | Detail | `failed`, oder `approved` seit > 10 Min. | `failed` ⇒ Status `received`, Kette von vorn; `approved` ⇒ `PublishSubmission` erneut. |
+| **Entfernen** | Detail | `published` | Pflichtfeld Grund. Löscht alle Dateien (öffentlich und privat, auch ein aufbewahrtes Original), Status ⇒ `rejected`, Station ⇒ `needs_render = true`. |
+| **Original** | Detail | solange `original_path` gesetzt ist | Öffnet das unbearbeitete, **unverpixelte** Original (neu kodiert, ohne Metadaten) über eine 15 Minuten gültige vorsignierte URL in neuem Tab. Bei veröffentlichten Fotos nur mit `FOTOSTATION_KEEP_ORIGINALS=true`. |
+| **Freigeben (ohne Gesichter)** | Liste, Sammelaktion | nur voller Modus | Gibt von den ausgewählten Fotos nur die frei, die `pending_review` sind, **keine** erkannten Gesichter haben **und** keine geringe Abdeckung (`Submission::hasLowCoverage()`). Alle anderen bleiben unverändert und müssen einzeln geprüft werden (`SubmissionActions::approveUnproblematic`). |
+| **Foto entfernen** | Meldungen | Meldung offen | Wie „Entfernen“ (nur wenn das Foto `published` ist), Grund „Auf Meldung entfernt: …“. Alle offenen Meldungen zu dem Foto ⇒ `removed`. |
+| **Zurückweisen** | Meldungen | Meldung offen | Nur die Meldung ⇒ `dismissed`, das Foto bleibt veröffentlicht. |
+
+### 2.6 Freigabeprozess: Status, Möglichkeiten der Moderation und Übergänge
+
+Übersicht für jeden Status einer Einreichung (`App\Enums\SubmissionStatus`): wie das Foto in den Status kommt, was die Moderation dort tun kann und in welchen Status sie es damit bringt. „Automatisch“ heißt: Das erledigt die Queue bzw. der nächtliche Befehl ohne Zutun der Moderation.
+
+| Status (Anzeige im Admin) | Wie kommt das Foto hierher? | Möglichkeiten der Moderation | ⇒ Neuer Status | Ohne Zutun der Moderation |
+| --- | --- | --- | --- | --- |
+| `received` (Eingegangen) | Upload gespeichert; oder „Erneut verarbeiten“ bei `failed` | Ansehen, Original öffnen | – (kein Statuswechsel möglich) | Erster Job der Kette ⇒ `processing` |
+| `processing` (In Verarbeitung) | `MatchReference` bzw. `PrepareImage` hat begonnen; oder „Zur Freigabe holen“ | Ansehen, Original öffnen | – (kein Statuswechsel möglich) | Ende der Kette ⇒ `pending_review`; Bildabgleich zu schwach ⇒ `auto_rejected`; technischer Fehler nach 3 Versuchen ⇒ `failed` |
+| `auto_rejected` (Automatisch abgelehnt) | Bildabgleich unter `min_inliers` oder unplausible Homographie (nur voller Modus) | **Ablehnen** | `rejected` | Nach 7 Tagen nachts samt Dateien gelöscht (`model:prune`) |
+| | | **Zur Freigabe holen** (nur wenn eine Homographie vorliegt, nur voller Modus) | `processing` ⇒ automatisch `pending_review` | |
+| | | Ansehen, Original öffnen | – | |
+| `pending_review` (Wartet auf Freigabe) | `MarkForReview` am Ende der Kette | **Freigeben** (optional mit zusätzlichen Verpixel-Bereichen) | `approved` ⇒ automatisch `published` | Bleibt unbegrenzt stehen |
+| | | **Freigeben (ohne Gesichter)** als Sammelaktion (nur voller Modus, nur ohne Gesichter und mit ausreichender Abdeckung) | `approved` ⇒ automatisch `published` | |
+| | | **Ablehnen** | `rejected` | |
+| | | Ansehen, Original öffnen | – | |
+| `approved` (Freigegeben) | Freigabe durch die Moderation | **Erneut verarbeiten** (erst 10 Minuten nach der Freigabe, wenn das Veröffentlichen hängt oder fehlschlug) | bleibt `approved` ⇒ automatisch `published` | `PublishSubmission` ⇒ `published`. Schlägt es fehl, bleibt der Status `approved` (nicht `failed`). |
+| | | Ansehen, Original öffnen | – | |
+| `published` (Veröffentlicht) | `PublishSubmission` erfolgreich | **Entfernen** (Detailansicht, Grund angeben) | `rejected` | Bleibt dauerhaft veröffentlicht |
+| | | **Foto entfernen** (aus einer offenen Meldung heraus) | `rejected` | |
+| | | Ansehen; Original öffnen, nur wenn `FOTOSTATION_KEEP_ORIGINALS=true` | – | |
+| `rejected` (Abgelehnt) | Ablehnen, Entfernen oder Foto entfernen (Meldung) | Nur Ansehen (bis zum Löschen in der Nacht) | – (Endstatus) | Dateien sind sofort weg, der Datensatz wird in der nächsten Nacht gelöscht (`model:prune`) |
+| `failed` (Fehler) | Ein Verarbeitungsschritt ist dreimal gescheitert (Feld `error` zeigt Job und Meldung) | **Erneut verarbeiten** | `received` ⇒ Kette läuft von vorn | Nach 30 Tagen nachts samt Dateien gelöscht; `fotostation:report-stuck` meldet neue Fehler per E-Mail |
+| | | **Ablehnen** | `rejected` | |
+| | | Ansehen, Original öffnen | – | |
+
+Übergänge auf einen Blick („Moderation – …“ = Aktion im Admin, sonst automatisch):
+
+```mermaid
+stateDiagram-v2
+    [*] --> received: Upload
+    received --> processing: Queue
+    processing --> pending_review: Kette fertig
+    processing --> auto_rejected: Bildabgleich zu schwach
+    processing --> failed: Fehler nach 3 Versuchen
+    auto_rejected --> processing: Moderation – Zur Freigabe holen
+    auto_rejected --> rejected: Moderation – Ablehnen
+    pending_review --> approved: Moderation – Freigeben oder Sammelfreigabe
+    pending_review --> rejected: Moderation – Ablehnen
+    approved --> published: PublishSubmission
+    approved --> approved: Moderation – Erneut verarbeiten
+    published --> rejected: Moderation – Entfernen oder Foto entfernen
+    failed --> received: Moderation – Erneut verarbeiten
+    failed --> rejected: Moderation – Ablehnen
+    auto_rejected --> [*]: nach 7 Tagen gelöscht
+    failed --> [*]: nach 30 Tagen gelöscht
+    rejected --> [*]: nächste Nacht gelöscht
+```
+
+Vereinfacht als Liste:
+
+- `received` → `processing` → `pending_review` (automatisch)
+- `processing` → `auto_rejected` bzw. `failed` (automatisch)
+- `auto_rejected` → `rejected` [Ablehnen] · → `processing` [Zur Freigabe holen]
+- `pending_review` → `approved` [Freigeben / Sammelfreigabe] · → `rejected` [Ablehnen]
+- `approved` → `published` (automatisch; bei Problemen [Erneut verarbeiten])
+- `published` → `rejected` [Entfernen / Foto entfernen aus Meldung]
+- `failed` → `received` [Erneut verarbeiten] · → `rejected` [Ablehnen]
+- `rejected`: Endstatus, kein Weg zurück
+
+**Hinweise für Entwickler**
+
+- Für `received`, `processing` und `approved` gibt es **kein „Ablehnen“**. Ein Foto, das in `received`/`processing` hängen bleibt (z. B. Queue-Worker lief nicht), lässt sich im Admin weder ablehnen noch neu anstoßen; `fotostation:report-stuck` meldet es nach einer Stunde. Abhilfe derzeit nur per Tinker/Datenbank, z. B. Status auf `failed` setzen und dann „Erneut verarbeiten“.
+- Ein veröffentlichtes Foto kann nicht direkt zurück in die Moderation (`pending_review`); „Entfernen“ ist endgültig.
+- Alle Statuswechsel laufen über `Submission::transitionTo()`. Die Jobs prüfen den Status vor jedem Schritt (`SubmissionJob::shouldRun()`), `PublishSubmission` läuft nur bei `approved`.
 
 ---
 
@@ -146,10 +218,12 @@ Nur für Rolle **Admin** sichtbar (`StationResource::canViewAny`). Felder (`app/
 received ──▶ processing ──▶ pending_review ──▶ approved ──▶ published
                  │                 │                            │
                  ▼                 ▼                            ▼
-           auto_rejected        rejected  ◀───── (Entfernen) ───┘
+           auto_rejected ──▶ rejected  ◀────── (Entfernen) ─────┘
                  │
-   (jeder Schritt kann bei technischem Fehler) ──▶ failed
+   (Verarbeitungsschritt scheitert dreimal) ──▶ failed ──▶ received | rejected
 ```
+
+Die vollständige Übersicht mit allen Aktionen der Moderation je Status steht in [2.6](#26-freigabeprozess-status-möglichkeiten-der-moderation-und-übergänge).
 
 Nur in `received` und `processing` darf die Verarbeitungskette arbeiten (`isProcessable()`). Jeder Job prüft das zu Beginn erneut – wird ein Foto währenddessen abgelehnt, laufen die restlichen Jobs ins Leere (idempotent).
 
@@ -183,13 +257,13 @@ Bevor irgendetwas gespeichert wird:
 6. **WebP-Vorschau** (480 px breit, Qualität 80) für die Moderation.
 7. **SHA-256** der neu kodierten Datei und **Perceptual Hash** (dHash, 64 Bit) berechnen.
 
-Ergebnis: Es landet nie eine Originaldatei mit Metadaten im Speicher.
+Ergebnis: Es landet nie eine Originaldatei mit Metadaten im Speicher. Was im Folgenden „Original“ heißt, ist immer diese neu kodierte Fassung ohne Metadaten (aber unverpixelt).
 
 Weitere Datenschutzmaßnahmen rund um den Upload:
 
 - Die IP-Adresse wird nur als `hash_hmac('sha256', ip, APP_KEY)` gespeichert (`ip_hash`, im Modell `Hidden`) und nach 48 Stunden gelöscht (`fotostation:purge-ip-hashes`).
-- Nach der Veröffentlichung werden Original, Vorschau und ausgerichtete Fassung gelöscht (`Submission::deletePrivateFiles`).
-- Abgelehnte Fotos: Dateien sofort gelöscht, DB-Datensatz in der nächsten Nacht (`model:prune`).
+- Nach der Veröffentlichung werden Vorschau und ausgerichtete Fassung gelöscht (`Submission::deleteWorkingFiles`). Das Original bleibt mit `FOTOSTATION_KEEP_ORIGINALS=true` (Standard) im **privaten** Bucket erhalten und ist in der Moderation über „Original“ abrufbar; mit `false` wird es ebenfalls gelöscht. Die Datenschutzerklärung (`resources/views/pages/datenschutz.blade.php`) zeigt je nach Einstellung den passenden Text; Zweck und Rechtsgrundlage für das Aufbewahren sind dort noch als TODO markiert.
+- Abgelehnte und entfernte Fotos: alle Dateien (auch ein aufbewahrtes Original) sofort gelöscht, DB-Datensatz in der nächsten Nacht (`model:prune`).
 
 ### 3.4 Duplikaterkennung
 
@@ -213,9 +287,11 @@ Alle Jobs laufen auf **einer** Queue (`FOTOSTATION_QUEUE`, Standard `uploads`) a
 | Job | Worker-Endpunkt | Ergebnis |
 | --- | --- | --- |
 | `MatchReference` | `POST /match` | Status ⇒ `processing`. SIFT-Merkmale (max. 5000, CLAHE-Kontrastausgleich), FLANN-Matching mit Ratio-Test 0,75, Homographie per RANSAC. Speichert `match_inliers`, `match_score`, `homography`. Bei `inliers < min_inliers` oder unplausibler Homographie (Spiegelung, nicht konvex, Fläche außerhalb 15 %–600 % der Referenz) ⇒ `auto_rejected` mit Grund „Passt nicht zum Referenzbild der Station.“ – die Kette bleibt stehen. |
-| `AlignImage` | `POST /align` | `warpPerspective` auf die Referenzgröße, dann Skalierung auf `output_width × output_height`. Speichert `aligned/{station}/{id}.jpg` im privaten Bucket. |
+| `AlignImage` | `POST /align` | Entzerrt das Foto per `warpPerspective` auf die Referenz und schneidet dabei an jeder Seite den **Sicherheitsrand** der Station ab (`crop_margin`, als Anteil `margin` übergeben). Bereiche, die das Foto danach nicht abdeckt, füllt der Worker aus dem Referenzbild auf: Helligkeit/Farbe grob an das Foto angeglichen und am Übergang weich überblendet (statt Randpixel zu Streifen zu ziehen). Anschließend Skalierung auf `output_width × output_height`. Speichert `aligned/{station}/{id}.jpg` im privaten Bucket und den Anteil echter Fotopixel als `coverage` (0–1). |
 | `DetectFaces` | `POST /faces` | YuNet-Gesichtserkennung im **ausgerichteten** Bild (Score ≥ 0,6), Boxen mit 25 % Rand ⇒ `face_boxes` (Pixel). |
 | `MarkForReview` | – | Status ⇒ `pending_review` |
+
+**Abdeckung:** Liegt `coverage` unter `FOTOSTATION_MIN_COVERAGE` (Standard 0,85), gilt das Foto als auffällig (`Submission::hasLowCoverage()`): In Liste und Detailansicht wird der Wert rot markiert, und die Sammelfreigabe überspringt es. Ablehnen tut das System deswegen nicht – die Moderation entscheidet.
 
 **Einfacher Modus (`CV_WORKER_ENABLED=false`)**
 
@@ -230,7 +306,7 @@ Alle Jobs laufen auf **einer** Queue (`FOTOSTATION_QUEUE`, Standard `uploads`) a
 2. Voller Modus: `POST /blur` – Mosaik (12 Blöcke) + Gaußscher Weichzeichner, nicht umkehrbar. Einfacher Modus: GD-Mosaik.
 3. Schreibt öffentliches JPEG `{station}/{id}.jpg` und Thumbnail `{station}/thumbs/{id}.webp` in den **öffentlichen** Bucket.
 4. Status ⇒ `published`, `published_at` setzen.
-5. Private Dateien löschen.
+5. Arbeitsdateien (Vorschau, ausgerichtete Fassung) löschen; das Original nur, wenn `FOTOSTATION_KEEP_ORIGINALS=false`.
 6. Station ⇒ `needs_render = true`.
 
 Schlägt `PublishSubmission` fehl, bleibt das Foto `approved` und kann nach 10 Minuten über „Erneut verarbeiten“ neu veröffentlicht werden.
@@ -246,7 +322,7 @@ Schlägt `PublishSubmission` fehl, bleibt das Foto `approved` und kann nach 10 M
 | Transport | Caddy mit automatischem TLS, `Server`-Header entfernt. |
 | Container-Härtung | `read_only: true`, `tmpfs /tmp` (2 GB), `no-new-privileges`, 2 GB Speicherlimit, eigener System-User (UID 10001). |
 | Logging | `httpx`-Logger auf WARNING, damit keine vorsignierten URLs ins Log gelangen. Keine OpenAPI-Doku (`docs_url=None`). |
-| Laravel-seitig | Connect-Timeout 5 s, Timeout 60 s, nur Verbindungsfehler werden sofort (2×) wiederholt; alles andere übernimmt der Job-Backoff. |
+| Laravel-seitig | Connect-Timeout 5 s, Timeout 60 s, nur Verbindungsfehler werden sofort (2×) wiederholt; alles andere übernimmt der Job-Backoff. Zu jedem Schreib-Ziel wird der `Content-Type`-Header ausdrücklich mitgeschickt (`PhotoStorage::uploadTarget`), weil das AWS-SDK ihn bei vorsignierten PUTs nicht mitliefert. |
 
 ### 3.7 Sonstige öffentliche Endpunkte und ihre Absicherung
 
@@ -270,8 +346,8 @@ Alle Fotostation-Einstellungen stehen in `config/fotostation.php`. Variablen ohn
 | `FOTOSTATION_UPLOAD_MAX_KB` ✱ | `15360` | Maximale Dateigröße in KB. **PHP-Limits** (`upload_max_filesize`, `post_max_size`) müssen mindestens so groß sein. |
 | `FOTOSTATION_UPLOAD_MIN_EDGE` ✱ | `1000` | Mindestlänge der kürzeren Kante in px (vor und nach dem Verkleinern geprüft) |
 | `FOTOSTATION_UPLOAD_MAX_EDGE` ✱ | `3000` | Längste Kante nach dem Neu-Kodieren |
-| `FOTOSTATION_UPLOADS_PER_IP_HOUR` ✱ | `3` | Rate-Limit je IP und Station pro Stunde |
-| `FOTOSTATION_UPLOADS_PER_STATION_DAY` ✱ | `500` | Rate-Limit je Station pro Tag |
+| `FOTOSTATION_UPLOADS_PER_IP_HOUR` | `3` | Rate-Limit je IP und Station pro Stunde (lokal mit Sail: `1000`) |
+| `FOTOSTATION_UPLOADS_PER_STATION_DAY` | `500` | Rate-Limit je Station pro Tag (lokal mit Sail: `10000`) |
 | (nur Config) `jpeg_quality` | `88` | JPEG-Qualität beim Neu-Kodieren |
 | (nur Config) `thumb_width` | `480` | Breite von Moderations-Vorschau und öffentlichem Thumbnail |
 | (nur Config) `duplicate_distance` | `3` | Max. Hamming-Abstand (0–64) für ähnliche Duplikate derselben IP |
@@ -321,11 +397,16 @@ Alle Fotostation-Einstellungen stehen in `config/fotostation.php`. Variablen ohn
 | --- | --- | --- |
 | `FOTOSTATION_PRIVATE_DISK` ✱ | `photos-private` | Disk-Name des privaten Buckets |
 | `FOTOSTATION_PUBLIC_DISK` ✱ | `photos-public` | Disk-Name des öffentlichen Buckets |
-| `PHOTOS_*` | MinIO-Werte | Nur lokal. In Laravel Cloud **nicht setzen** – die angehängten Buckets überschreiben die Disks. |
+| `PHOTOS_*` | lokale Werte | Nur lokal (Sail: `http://rustfs:9000`). In Laravel Cloud **nicht setzen** – die angehängten Buckets überschreiben die Disks. |
+| `LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK` | `local` | Zwischenspeicher für Filament-Uploads (Referenzbild). Nicht auf einen Bucket stellen, solange dieser kein CORS für `PUT` erlaubt; sonst scheitert der Upload im Browser. |
 | `FOTOSTATION_QUEUE` | `uploads` | Name der (einzigen) Queue |
 | `FOTOSTATION_NIGHTLY_AT` | `03:00` | Uhrzeit aller nächtlichen Aufgaben |
 | `FOTOSTATION_RENDER_FPS` | `4` | Bilder pro Sekunde im Zeitraffer |
 | `FOTOSTATION_RENDER_MAX_FRAMES` ✱ | `1500` | Max. Bilder pro Zeitraffer; darüber wird gleichmäßig ausgedünnt |
+| `FOTOSTATION_SHOW_TIMELAPSE` | `false` | Zeitraffer-Video auf Galerie- und Danke-Seite anzeigen. Gerendert wird auch bei `false`. |
+| `FOTOSTATION_SHOW_COMPARISON` | `false` | Vorher/Nachher-Schieber auf der Galerieseite anzeigen |
+| `FOTOSTATION_KEEP_ORIGINALS` | `true` | Original nach der Veröffentlichung privat behalten (unverpixelt, ohne Metadaten). Bei Ablehnung/Entfernung wird es trotzdem gelöscht. Steuert auch den Text der Datenschutzerklärung. |
+| `FOTOSTATION_MIN_COVERAGE` | `0.85` | Mindestanteil echter Fotopixel nach der Ausrichtung (0–1). Darunter: Markierung in der Moderation, keine Sammelfreigabe. Nur voller Modus. |
 | (nur Config) `retention.ip_hash_hours` | `48` | IP-Hashes löschen nach … Stunden (effektiv max. 72 h, da nur nachts) |
 | (nur Config) `retention.auto_rejected_days` | `7` | Automatisch abgelehnte Einreichungen löschen nach … Tagen |
 | (nur Config) `retention.failed_days` | `30` | Fehlgeschlagene Einreichungen löschen nach … Tagen |
@@ -417,11 +498,13 @@ Schedule::command('fotostation:report-stuck')->dailyAt($at);
 
 ### 6.2 Vorher/Nachher-Vergleich
 
-Auf der Galerieseite, sobald es mindestens zwei veröffentlichte Fotos gibt: ältestes und neuestes Foto übereinander, mit Schieberegler (CSS `clip-path`). Funktioniert in **beiden** Modi, sieht aber nur im vollen Modus wirklich deckungsgleich aus, weil dort alle Bilder auf die Referenz ausgerichtet sind. Benötigt keinen Worker.
+Nur wenn `FOTOSTATION_SHOW_COMPARISON=true` gesetzt ist (Standard: aus). Dann auf der Galerieseite, sobald es mindestens zwei veröffentlichte Fotos gibt: ältestes und neuestes Foto übereinander, mit Schieberegler (CSS `clip-path`). Funktioniert in **beiden** Modi, sieht aber nur im vollen Modus wirklich deckungsgleich aus, weil dort alle Bilder auf die Referenz ausgerichtet sind. Benötigt keinen Worker.
 
 ### 6.3 Zeitraffer
 
 Aus allen veröffentlichten Fotos einer Station entsteht ein MP4-Video, das auf der Galerieseite und auf der Danke-Seite nach dem Upload eingebettet wird (`<video muted loop playsinline>`), mit Zeitraum, Anzahl der Fotos, Namensnennung und Lizenz **CC BY 4.0**.
+
+Angezeigt wird das Video nur, wenn `FOTOSTATION_SHOW_TIMELAPSE=true` gesetzt ist (Standard: aus). Gerendert wird es unabhängig davon, damit es beim Einschalten sofort bereitsteht.
 
 **Ablauf** (`App\Jobs\RenderSeries`, aufgerufen von `fotostation:render-changed`):
 
@@ -449,7 +532,8 @@ Es bleibt immer nur **die aktuelle Reihe** pro Station erhalten. Dauer = Frames 
 
 - Automatische Gesichtserkennung + Verpixeln (voller Modus)
 - Manuelle Verpixel-Bereiche (beide Modi), z. B. für Kennzeichen
-- Entfernen veröffentlichter Fotos auf Meldung, inklusive Neu-Rendern des Zeitraffers
+- Entfernen veröffentlichter Fotos auf Meldung, inklusive Neu-Rendern des Zeitraffers und Löschen eines aufbewahrten Originals
+- Fehlende Bildränder nach der Ausrichtung werden aus dem Referenzbild ergänzt (voller Modus), damit alle Bilder einer Reihe denselben Ausschnitt ohne Randstreifen haben
 
 ---
 
@@ -462,11 +546,11 @@ Es bleibt immer nur **die aktuelle Reihe** pro Station erhalten. Dauer = Frames 
 | PHP ≥ 8.3 (Laravel Cloud: 8.4/8.5) | Erweiterungen **`gd`** (mit JPEG-, PNG-, WebP-Unterstützung) und **`exif`** |
 | Composer-Pakete | `laravel/framework` 13, `filament/filament` 5, `altcha-org/altcha`, `spatie/laravel-honeypot`, `bacon/bacon-qr-code`, `aws/aws-sdk-php`, `league/flysystem-aws-s3-v3` |
 | Node/Vite | Tailwind 4, `altcha`-Widget (npm), Build per `npm ci && npm run build` |
-| Datenbank | PostgreSQL (lokal 17, in der Cloud Serverless Postgres) |
+| Datenbank | PostgreSQL (lokal 18 über Sail, in der Cloud Serverless Postgres) |
 | Cache | Store, der `Cache::add` atomar unterstützt (ALTCHA-Replay-Schutz und Rate-Limits); Standard `database` |
 | Queue + Worker | Eine Queue (`uploads`); lokal `queue:work`, in der Cloud Managed Queue |
 | Scheduler | Für Löschfristen und Berichte |
-| 2 S3-Buckets | `photos-private` (privat, muss vorsignierte URLs unterstützen) und `photos-public` (öffentlich lesbar). Lokal MinIO über `docker-compose.dev.yml`. |
+| 2 S3-Buckets | `photos-private` (privat, muss vorsignierte URLs unterstützen) und `photos-public` (öffentlich lesbar). Lokal RustFS über Sail (`docker-compose.yml`). |
 | Mail (optional) | Für Benachrichtigungen an `FOTOSTATION_ADMIN_EMAIL` |
 
 ### 7.2 Zusätzlich für Bildabgleich, Ausrichtung, Gesichtserkennung und Zeitraffer
@@ -486,31 +570,58 @@ Es bleibt immer nur **die aktuelle Reihe** pro Station erhalten. Dauer = Frames 
 
 ### 7.3 Lokale Entwicklungsumgebung
 
+**Empfohlen: Laravel Sail** (`docker-compose.yml`, Vorlage `.env.sail.example`). Bildet die komplette Umgebung inklusive cv-worker nach:
+
+| Dienst | Zweck | Vom Rechner aus |
+| --- | --- | --- |
+| `laravel.test` | App (PHP 8.5), Vite | http://localhost, Vite :5173 |
+| `queue` | `queue:listen --queue=uploads --timeout=90 --tries=3` (lädt Codeänderungen bei jedem Job neu) | |
+| `scheduler` | `schedule:work` (nächtliche Aufgaben) | |
+| `pgsql` | PostgreSQL 18 | localhost:5432 |
+| `rustfs` | S3-Speicher mit `photos-private` und `photos-public` (ersetzt MinIO) | http://localhost:9000, Konsole :9001 |
+| `s3-setup` | legt die Buckets an, macht `photos-public` öffentlich lesbar, beendet sich | |
+| `cv-worker` | Bildverarbeitung aus `cv-worker/` (`CV_WORKER_ENABLED=true` ist in der Vorlage gesetzt) | http://localhost:8001/health |
+| `mailpit` | fängt alle Mails ab | http://localhost:8025 |
+| `adminer` | Datenbank-Oberfläche (Server `pgsql`, Benutzer `fotostation`, Passwort `secret`) | http://localhost:8080 |
+
 ```bash
-composer install
-cp .env.example .env && php artisan key:generate
-npm install && npm run build
+# einmalig: vorsignierte URLs sind an den Hostnamen gebunden,
+# Browser, Laravel und Worker müssen dieselbe Adresse nutzen
+echo "127.0.0.1 rustfs" | sudo tee -a /etc/hosts
 
-# PostgreSQL, MinIO (+ Buckets) und cv-worker
-docker compose -f docker-compose.dev.yml up -d --build
-# ohne Worker: docker compose -f docker-compose.dev.yml up -d pgsql minio minio-setup
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/var/www/html" -w /var/www/html \
+    -e COMPOSER_HOME=/tmp/composer \
+    laravelsail/php84-composer:latest composer install --ignore-platform-reqs
+cp .env.sail.example .env
 
-php artisan migrate
-php artisan fotostation:create-admin du@example.de "Dein Name"
+./vendor/bin/sail up -d --build
+./vendor/bin/sail artisan key:generate
+./vendor/bin/sail artisan migrate
+./vendor/bin/sail artisan db:seed      # Testzugänge und Teststation
+./vendor/bin/sail npm install && ./vendor/bin/sail npm run build
 
-php artisan serve                          # Terminal 1
-php artisan queue:work --queue=uploads     # Terminal 2
-php artisan fotostation:render-changed     # Zeitraffer von Hand
+# im Alltag
+sail logs -f queue cv-worker                # Verarbeitungskette beobachten
+sail artisan fotostation:render-changed     # Zeitraffer sofort statt nachts
+sail artisan test
 ```
 
-MinIO-Konsole: http://localhost:9001 (`fotostation` / `fotostation-secret`).
+**Testdaten** (`db:seed` ⇒ `Database\Seeders\DevelopmentSeeder`, mehrfach ausführbar, in der Produktion gesperrt):
 
-**Achtung Portkonflikt:** `php artisan serve` und der lokale cv-worker nutzen beide standardmäßig Port 8000. Bei aktivem Worker Laravel z. B. mit `php artisan serve --port=8080` starten (und `APP_URL` anpassen).
+| | |
+| --- | --- |
+| Admin | `admin@example` / `testtesttest` |
+| Moderation | `moderator@example` / `testtesttest` |
+| Station | Teststation-01 unter `/s/teststation-01`. Vor dem ersten Upload im Admin ein Referenzbild hochladen. |
+
+Ohne Worker testen: in `.env` `CV_WORKER_ENABLED=false`, dann `sail artisan config:clear` und `sail restart queue`. Weitere Hinweise (Handy im WLAN, Portkonflikte, `sail:install` nicht ausführen) stehen im README.
+
+**Ohne Sail** (`docker-compose.dev.yml`): Achtung, die Datei nutzt noch `minio/minio` und `minio/mc`. Diese Images gibt es auf Docker Hub nicht mehr, die Datei startet derzeit nicht. Wer trotzdem ohne Sail arbeitet (eigener S3-Speicher, PostgreSQL): `php artisan serve` und ein lokal gestarteter cv-worker nutzen beide Port 8000 – Laravel dann z. B. mit `--port=8080` starten und `APP_URL` anpassen.
 
 Tests:
 
 ```bash
-php artisan test
+php artisan test                          # bzw. sail artisan test
 cd cv-worker && pip install -r requirements-dev.txt && pytest
 ```
 
@@ -521,7 +632,7 @@ Laut README liefen die PHPUnit-Tests zum Zeitpunkt der Erstellung noch nie; der 
 | Bucket | Pfad | Inhalt | Lebensdauer |
 | --- | --- | --- | --- |
 | privat | `references/…` | Referenzbilder der Stationen | dauerhaft |
-| privat | `originals/{station}/{id}.jpg` | Neu kodiertes Original (ohne Metadaten) | bis Veröffentlichung/Ablehnung |
+| privat | `originals/{station}/{id}.jpg` | Neu kodiertes Original (ohne Metadaten, unverpixelt) | bis Ablehnung/Entfernung; bei `FOTOSTATION_KEEP_ORIGINALS=false` nur bis zur Veröffentlichung |
 | privat | `review-thumbs/{station}/{id}.webp` | Moderationsvorschau | bis Veröffentlichung/Ablehnung |
 | privat | `aligned/{station}/{id}.jpg` | Ausgerichtete bzw. zugeschnittene Fassung | bis Veröffentlichung/Ablehnung |
 | öffentlich | `{station}/{id}.jpg` | Veröffentlichtes, verpixeltes Foto | bis Entfernung |

@@ -11,9 +11,13 @@ use App\Jobs\PublishSubmission;
 use App\Jobs\RenderSeries;
 use App\Models\Station;
 use App\Models\Submission;
+use App\Models\User;
+use App\Services\CvWorker;
+use App\Services\PhotoStorage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -95,7 +99,7 @@ class PipelineTest extends TestCase
         $this->assertTrue($low->hasLowCoverage());
         $this->assertFalse($good->hasLowCoverage());
 
-        \Illuminate\Support\Facades\Queue::fake();
+        Queue::fake();
         $this->assertSame(1, SubmissionActions::approveUnproblematic([$low, $good]));
 
         $this->assertSame(SubmissionStatus::PendingReview, $low->refresh()->status);
@@ -111,6 +115,7 @@ class PipelineTest extends TestCase
             'manual_boxes' => [['x' => 50, 'y' => 50, 'w' => 10, 'h' => 5]],
         ]);
         $submission->forceFill(['aligned_path' => $submission->pathFor('aligned')])->save();
+        Storage::disk('photos-private')->put($submission->source_path, 'x');
         Storage::disk('photos-private')->put($submission->original_path, 'x');
         Storage::disk('photos-private')->put($submission->aligned_path, 'x');
 
@@ -119,7 +124,9 @@ class PipelineTest extends TestCase
         $submission->refresh();
         $this->assertSame(SubmissionStatus::Published, $submission->status);
         $this->assertNotNull($submission->public_path);
-        // Original bleibt (fotostation.keep_originals, Standard), Arbeitsdateien nicht.
+        // Original und Arbeitsfassung bleiben, Vorschau und ausgerichtete Fassung nicht.
+        $this->assertSame($submission->pathFor('source'), $submission->source_path);
+        Storage::disk('photos-private')->assertExists($submission->pathFor('source'));
         $this->assertSame($submission->pathFor('original'), $submission->original_path);
         Storage::disk('photos-private')->assertExists($submission->pathFor('original'));
         $this->assertNull($submission->aligned_path);
@@ -132,39 +139,28 @@ class PipelineTest extends TestCase
         });
     }
 
-    public function test_publish_deletes_original_when_not_kept(): void
-    {
-        config(['fotostation.keep_originals' => false]);
-        Http::fake(['worker.test/blur' => Http::response(['boxes' => 0, 'width' => 1600, 'height' => 1200])]);
-
-        $submission = Submission::factory()->status(SubmissionStatus::Approved)->create();
-        $submission->forceFill(['aligned_path' => $submission->pathFor('aligned')])->save();
-        Storage::disk('photos-private')->put($submission->original_path, 'x');
-
-        (new PublishSubmission($submission))->handle();
-
-        $this->assertNull($submission->refresh()->original_path);
-        Storage::disk('photos-private')->assertMissing($submission->pathFor('original'));
-    }
-
     public function test_unpublish_also_deletes_kept_original(): void
     {
         $submission = Submission::factory()->status(SubmissionStatus::Published)->create();
+        Storage::disk('photos-private')->put($submission->source_path, 'x');
         Storage::disk('photos-private')->put($submission->original_path, 'x');
 
         SubmissionActions::markRemoved($submission, 'Meldung');
 
+        Storage::disk('photos-private')->assertMissing($submission->pathFor('source'));
         Storage::disk('photos-private')->assertMissing($submission->pathFor('original'));
     }
 
     public function test_reject_deletes_files_immediately(): void
     {
         $submission = Submission::factory()->status(SubmissionStatus::PendingReview)->create();
+        Storage::disk('photos-private')->put($submission->source_path, 'x');
         Storage::disk('photos-private')->put($submission->original_path, 'x');
 
         SubmissionActions::markRejected($submission, 'Personen erkennbar');
 
         $this->assertSame(SubmissionStatus::Rejected, $submission->refresh()->status);
+        Storage::disk('photos-private')->assertMissing($submission->pathFor('source'));
         Storage::disk('photos-private')->assertMissing($submission->pathFor('original'));
     }
 
@@ -180,7 +176,7 @@ class PipelineTest extends TestCase
             $submission->forceFill(['public_path' => $submission->pathFor('public')])->save();
         }
 
-        (new RenderSeries($station))->handle(app(\App\Services\CvWorker::class), app(\App\Services\PhotoStorage::class));
+        (new RenderSeries($station))->handle(app(CvWorker::class), app(PhotoStorage::class));
 
         $series = $station->series()->sole();
         $this->assertSame(3, $series->frame_count);
@@ -246,6 +242,6 @@ class PipelineTest extends TestCase
             '--no-interaction' => true,
         ])->assertSuccessful();
 
-        $this->assertTrue(\App\Models\User::where('email', 'admin@example.de')->sole()->isAdmin());
+        $this->assertTrue(User::where('email', 'admin@example.de')->sole()->isAdmin());
     }
 }
