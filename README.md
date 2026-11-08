@@ -174,7 +174,7 @@ Die ausführliche Schritt-für-Schritt-Anleitung (inkl. IONOS-VPS) liegt als Dok
 
 Grenzen der Managed Queues, auf die der Code ausgelegt ist: eine Queue pro Umgebung im Starter-Plan, Jobs höchstens 90 Sekunden auf Flex, Verzögerungen höchstens 15 Minuten. `php artisan queue:failed` funktioniert damit nicht; fehlgeschlagene Jobs stehen unter **Monitoring › Queues**.
 
-Hinweis zu Filament-Uploads (Referenzbild): Livewire legt Uploads zunächst lokal ab. Bei mehreren App-Instanzen in `config/livewire.php` den `temporary_file_upload.disk` auf `photos-private` stellen.
+Hinweis zu Filament-Uploads (Referenzbild): Livewire legt Uploads zunächst auf der lokalen Disk ab (`config/livewire.php`, unabhängig von `FILESYSTEM_DISK`), Filament verschiebt sie beim Speichern in `photos-private`. Bei mehreren App-Instanzen `LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK` auf eine gemeinsame Disk stellen; bei einem Bucket lädt der Browser dann direkt dorthin hoch, der Bucket muss also CORS für `PUT` von der App-Domain erlauben.
 
 ## cv-worker auf dem VPS
 
