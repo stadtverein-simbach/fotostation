@@ -398,6 +398,7 @@ Alle Fotostation-Einstellungen stehen in `config/fotostation.php`. Variablen ohn
 | `FOTOSTATION_PRIVATE_DISK` ✱ | `photos-private` | Disk-Name des privaten Buckets |
 | `FOTOSTATION_PUBLIC_DISK` ✱ | `photos-public` | Disk-Name des öffentlichen Buckets |
 | `PHOTOS_*` | lokale Werte | Nur lokal (Sail: `http://rustfs:9000`). In Laravel Cloud **nicht setzen** – die angehängten Buckets überschreiben die Disks. |
+| `LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK` | `local` | Zwischenspeicher für Filament-Uploads (Referenzbild). Nicht auf einen Bucket stellen, solange dieser kein CORS für `PUT` erlaubt; sonst scheitert der Upload im Browser. |
 | `FOTOSTATION_QUEUE` | `uploads` | Name der (einzigen) Queue |
 | `FOTOSTATION_NIGHTLY_AT` | `03:00` | Uhrzeit aller nächtlichen Aufgaben |
 | `FOTOSTATION_RENDER_FPS` | `4` | Bilder pro Sekunde im Zeitraffer |
